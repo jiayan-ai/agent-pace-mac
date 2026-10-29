@@ -22,7 +22,7 @@ A native macOS menu bar app that turns your remaining Codex / Claude subscriptio
 - 每 5 分钟刷新，支持登录 Mac 时启动。
 - Codex reset 券数量、有效期同步；结合近 30 天账户日用量给出使用建议。
 - Tibo 公开 reset 动态与原帖链接；工具内一键查看 Will Codex Reset 的 24 / 48 小时预测。
-- 原生 SwiftUI + AppKit，无第三方库，不自动消耗额度。
+- 原生 SwiftUI + AppKit，无第三方库；可选的 Reset 自动使用默认关闭。
 
 ## 打开
 
@@ -56,7 +56,7 @@ A native macOS menu bar app that turns your remaining Codex / Claude subscriptio
 
 当账户有可用的 Codex Reset 券，且该券在 72 小时内到期、早于当前所选 Codex 主额度窗口的自然重置时间时，工具以**券的到期时间作为规划终点**，详情和状态栏改为显示接下来每小时建议用量，不再突出今日预算超额。例如当前窗口剩余 50%，券还有 10 小时到期，则建议 **5% / 小时**；数值随时间和同步到的用量动态变化。最后不足 1 小时时直接显示到期前实际剩余的额度。
 
-券到期**不会自动重置额度**；需要使用时请在 Codex 中手动操作。自然重置时间仍单独存在。不满足条件时继续显示原来的每日预算。多张券使用最早到期的有效明细；数据未确认或没有明确到期时间时不会猜测。若记录中的可用券已经到期，请刷新确认当前状态。
+券到期本身**不会自动重置额度**。自然重置时间仍单独存在。不满足条件时继续显示原来的每日预算。多张券使用最早到期的有效明细；数据未确认或没有明确到期时间时不会猜测。若记录中的可用券已经到期，请刷新确认当前状态。
 
 ## 计算方式
 
@@ -84,6 +84,10 @@ A native macOS menu bar app that turns your remaining Codex / Claude subscriptio
 
 这是均摊使用建议，不会自动消耗额度。
 
+### 可选的 Reset 自动使用
+
+自动使用默认关闭。开启后，Agent Pace 会在可用的 Codex Reset 券到期前五分钟尝试使用指定的券。应用需要保持运行、Mac 保持清醒且网络可用；电脑睡眠或应用退出时无法保证准时执行。服务端会判断兑换资格，可能拒绝请求，因此不能保证一定成功。使用后符合条件的额度会恢复，原有剩余额度不会与新额度累加，下次重置时间也可能变化。公开 Reset 动态和预测不会触发使用。随时可以关闭此功能。
+
 ## Reset 助手（1.3.0）
 
 Codex 面板会同步可用 reset 总数及接口提供的每张券的有效期，并从官方 `account/usage/read` 接口读取最近 30 天的每日 Token 活跃度。展开「近 30 天模式与 Reset 明细」可查看图表、活跃天数、常见高用量星期和最近一周的变化。无需读取聊天记录或调用模型。
@@ -95,7 +99,7 @@ Codex 面板会同步可用 reset 总数及接口提供的每张券的有效期�
 - 基础额度超过 11 分钟未确认，或已知券到期、窗口时间失效时，先要求同步。月度历史超过 6 小时未成功同步时不使用模式建议。历史接口不可用不影响基础额度。
 - 可用总数以服务端为准；明细可能不完整。未返回数量显示未知，不推测为零。
 
-这是可解释的本地规则建议。Token 活跃度不能直接换算成额度百分比，所以不声称准确预测耗尽时间；模型切换、套餐变化和未来工作计划也可能改变用量。**不会自动兑换 reset**，用户需要时回到 Codex 操作。当天均摊预算变为负数本身不构成重置理由。
+这是可解释的本地规则建议。Token 活跃度不能直接换算成额度百分比，所以不声称准确预测耗尽时间；模型切换、套餐变化和未来工作计划也可能改变用量。自动使用 Reset 是独立的可选设置。当天均摊预算变为负数本身不构成重置理由。
 
 Claude 当前使用的接口没有提供 reset 券或月度账户历史，因此暂不提供这部分建议，不会猜测券数。Codex 月度记录与额度记录按账户隔离，切换账户会清除旧账户的模式数据。
 
@@ -116,7 +120,7 @@ Codex 面板增加「Tibo · Reset 动态」。通过 [Codex Reset 公开 API](h
 
 Agent Pace 不需要 macOS「App 管理」（更新或删除其他应用）权限，也没有应用安装或自动更新功能。可关闭系统设置中的这项授权；「登录 Mac 时启动」是单独的可选登录项设置。
 
-使用官方 [Codex App Server 接口](https://learn.chatgpt.com/docs/app-server)：`initialize`、`account/read`、`account/rateLimits/read`、`account/usage/read`。不会调用 `turn/start` 或 `account/rateLimitResetCredit/consume`，不会创建聊天、发起模型推理或消耗重置券。
+使用官方 [Codex App Server 接口](https://learn.chatgpt.com/docs/app-server)：`initialize`、`account/read`、`account/rateLimits/read`、`account/usage/read`。开启自动使用后还会调用 `account/rateLimitResetCredit/consume`，这是一项可能消耗 Reset 券的写入操作。不会调用 `turn/start`、创建聊天或发起模型推理。
 
 Codex 由已安装的 Codex 程序管理登录，小工具不读取其认证令牌。账户标识（ID 或邮箱）与工作区路由仅取哈希用于区分预算；不保存明文邮箱。额度快照、每日基线、reset 券信息和近 30 天日用量保存在 `~/Library/Application Support/CodexPace/state.json`，沿用旧名称以保留升级前的记录。历史只在本机分析，不上传给其他服务。错误信息不记录原始服务响应。
 

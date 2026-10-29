@@ -18,7 +18,7 @@ A native macOS menu bar app that helps you pace your **Codex and Claude subscrip
 - Tibo reset updates: public announcement records, source links and an in-app window for the Will Codex Reset community forecast.
 - English and Simplified Chinese, with an in-app language switch.
 - Automatic quota sync every five minutes, refresh after wake, and optional launch at login.
-- Native SwiftUI, AppKit and WebKit. No third-party libraries, model requests or automatic reset redemption.
+- Native SwiftUI, AppKit and WebKit. No third-party libraries or model requests. Optional automatic reset redemption is off by default.
 
 ## Install
 
@@ -80,7 +80,7 @@ If you use 17 percentage points against a 10% allowance, the balance is **−7.0
 
 When a usable Codex reset credit expires within 72 hours and before the selected main Codex quota window's natural reset, Agent Pace uses the **credit expiry as a planning deadline**. The main panel and menu bar show a rolling hourly suggestion instead of the daily balance, even if the earlier daily budget was exceeded. For example, 50% of the window remaining with 10 hours until the credit expires gives **5% / hour**. The countdown and suggestion change as time passes and usage is synced. In the final partial hour, the panel shows the actual remaining quota before expiry.
 
-This is a plan for the existing quota, not an automatic reset. The credit expiring does **not** reset the account; use it manually in Codex if needed. The natural reset remains separate. When no credit meets these conditions, the normal daily budget remains in view. The app uses the earliest known, available credit, requires confirmed account data, and never guesses an unknown expiry. If a credit reaches its recorded expiry while the server still reports it as available, refresh to confirm the current status.
+This is a plan for the existing quota. Credit expiry itself does **not** reset the account. The natural reset remains separate. When no credit meets these conditions, the normal daily budget remains in view. The app uses the earliest known, available credit, requires confirmed account data, and never guesses an unknown expiry. If a credit reaches its recorded expiry while the server still reports it as available, refresh to confirm the current status.
 
 ### Claude's five-hour window
 
@@ -102,6 +102,10 @@ These are percentage points of a quota, **not minutes of work**. Consumption dep
 
 Missing data is never treated as zero usage. Expired windows wait for fresh data. Offline or unconfirmed records are labeled as last known; the menu bar uses `≈` for stale estimates. A one-decimal display does not imply the service measures usage to that precision.
 
+### Optional automatic reset redemption
+
+Automatic redemption is **off by default**. If enabled, Agent Pace attempts to redeem the specific available Codex reset credit five minutes before it expires. The app must be running, the Mac awake and an internet connection available; a sleeping or closed app cannot guarantee an on-time attempt. The server decides eligibility and may reject a request, so redemption is not guaranteed. A reset restores eligible usage limits rather than adding unused quota to the new allowance, and can change their next reset times. Public reset announcements and forecasts do not trigger redemption. You can turn the feature off at any time.
+
 ## Reset advisor
 
 The Codex panel reads available reset counts, reported expiry details and 30 days of daily token activity through the local app server. Expand **30-day patterns & reset details** to see the chart and recommendations.
@@ -112,7 +116,7 @@ The Codex panel reads available reset counts, reported expiry details and 30 day
 - Low quota combined with likely higher demand prompts reassessment before focused work. Credits expiring within three days are prioritized when a reset is actually needed.
 - Stale quota, expired credit details or incomplete windows require a refresh before advice. History older than six hours is not used for pattern advice.
 
-This is explainable, local rule-based guidance. Token activity cannot be converted directly into quota percentage, so the app does not promise an accurate depletion forecast. It never redeems credits automatically or encourages unnecessary usage just to spend a credit. A negative daily budget alone is not a reason to reset.
+This is explainable, local rule-based guidance. Token activity cannot be converted directly into quota percentage, so the app does not promise an accurate depletion forecast. Automatic redemption is a separate, optional setting, and the app does not encourage unnecessary usage just to spend a credit. A negative daily budget alone is not a reason to reset.
 
 Claude's current endpoint does not provide reset credits or account-wide monthly history. Agent Pace does not invent those values or provide monthly reset advice for Claude.
 
@@ -130,7 +134,7 @@ Automatic public-feed sync can be disabled under **Records & sources**.
 
 ### Codex
 
-Agent Pace uses the [Codex app server](https://learn.chatgpt.com/docs/app-server) methods `initialize`, `account/read`, `account/rateLimits/read` and `account/usage/read`. It does not call `turn/start` or `account/rateLimitResetCredit/consume`, launch model inference or read Codex authentication tokens.
+Agent Pace uses the [Codex app server](https://learn.chatgpt.com/docs/app-server) methods `initialize`, `account/read`, `account/rateLimits/read` and `account/usage/read`. If automatic redemption is enabled, it also calls `account/rateLimitResetCredit/consume`, a write operation that can spend a reset credit. It does not call `turn/start`, launch model inference or read Codex authentication tokens.
 
 Account identity and workspace routing are hashed to separate records. Plaintext email addresses are not persisted. Quota snapshots, daily baselines, reset information and activity history are stored locally in:
 

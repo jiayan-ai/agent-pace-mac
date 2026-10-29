@@ -21,6 +21,18 @@ struct ResetInsightsView: View {
                 Text(countLabel)
                     .font(.caption.weight(.semibold)).foregroundStyle(.secondary)
             }
+            Toggle(L("到期前 5 分钟自动使用 Reset"), isOn: Binding(get: { store.autoResetEnabled }, set: store.setAutoResetEnabled))
+                .font(.caption)
+            Text(L("需保持 Agent Pace 运行且电脑唤醒并联网。重置不会累加额度，可能重新开始周期；操作受账户资格限制，无法保证成功。"))
+                .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            if store.autoResetUnconfirmed {
+                Text(L("上次自动 Reset 的结果尚未确认。请先在 Codex 检查券和额度，再解除暂停；确认前不会使用其他券。"))
+                    .font(.caption).foregroundStyle(.orange).fixedSize(horizontal: false, vertical: true)
+                Button(L("已在 Codex 核实，解除暂停")) { store.clearUnconfirmedAutoReset() }.font(.caption)
+            }
+            if let message = store.autoResetMessage {
+                Text(message).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            }
             Text(advice.title).font(.callout.weight(.semibold))
                 .foregroundStyle(advice.kind == .consider ? Color.orange : Color.primary)
             Text(advice.reason).font(.caption).foregroundStyle(.secondary)
@@ -47,7 +59,7 @@ struct ResetInsightsView: View {
                     }
                     Divider()
                     resetDetails
-                    Text(L("根据历史模式与当前窗口给出规则建议，不会自动使用 reset；需要使用时请回到 Codex 操作。"))
+                    Text(L("根据历史模式与当前窗口给出规则建议。可选择到期前自动使用，也可以在 Codex 中手动使用。"))
                         .foregroundStyle(.tertiary)
                 }.font(.caption).foregroundStyle(.secondary).padding(.top, 8)
             }.font(.caption)

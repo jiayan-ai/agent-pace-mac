@@ -25,6 +25,7 @@ struct Runner {
         let client = ClientTests()
         let providers = ProviderTests()
         let resets = ResetTests()
+        let autoReset = AutoResetTests()
         let web = ClaudeWebTests()
         let radar = ResetRadarTests()
         let session = ClaudeSessionTests()
@@ -62,6 +63,9 @@ struct Runner {
             ("网页桥接保留 Fable 额度并过滤无关字段", web.testBridgeIncludesFableWithoutLeakingOtherFields),
             ("Fable 模型范围、零用量和重复条目", web.testFableScopeZeroMissingAndAmbiguousRows),
             ("旧版本无历史接口仍能同步额度", client.testUnavailableHistoryDoesNotBreakQuotas),
+            ("自动 Reset 的 5 分钟边界和指定券", autoReset.testCandidateBoundariesAndSelection),
+            ("自动 Reset 幂等恢复和防重复使用", autoReset.testJournalPersistsRetryKeyAndPreventsDoubleSpend),
+            ("自动 Reset 协议、授权和账户校验", autoReset.testConsumeProtocolAndAccountCheck),
             ("Reset 总数、部分明细与未知状态", resets.testResetCountsAndUnknownDetails),
             ("近月窗口、缺失日期与去重", resets.testRollingMonthAndMissingDays),
             ("星期偏好、趋势和稀疏历史", resets.testBusyWeekdayAndTrend),

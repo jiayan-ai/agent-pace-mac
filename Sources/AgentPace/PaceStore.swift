@@ -4,6 +4,11 @@ import PaceCore
 
 @MainActor
 final class PaceStore: ObservableObject {
+    @Published private(set) var autoResetEnabled = (try? AutoResetAuthorization.authorizedAccount()) != nil
+    @Published private(set) var autoResetUnconfirmed = false
+    @Published private(set) var autoResetMessage: String?
+    private var autoResetRunning = false
+    private var autoResetAttempt: Date?
     @Published private var history = PaceHistory()
     @Published private var refreshing: Set<UsageProvider> = []
     @Published private var errors: [UsageProvider: Error] = [:]
@@ -65,6 +70,8 @@ final class PaceStore: ObservableObject {
                         self.refresh(provider: provider)
                     }
                 }
+                self.checkAutoResetStatus()
+                self.tryAutoReset()
                 if self.now.timeIntervalSince(self.resetRadarAttempt ?? .distantPast) >= ResetRadarClient.refreshInterval {
                     self.refreshResetRadar()
                 }
@@ -147,6 +154,75 @@ final class PaceStore: ObservableObject {
                                     historyFresh: historyAge >= 0 && historyAge < 6 * 3600,
                                     stale: stale, now: now)
     }
+    func setAutoResetEnabled(_ enabled: Bool) {
+        guard !enabled || (verified.contains(.codex) && history[.codex].snapshot != nil) else {
+            autoResetMessage = L("请先同步 Codex 账户后再开启。")
+            refresh(provider: .codex)
+            return
+        }
+        let account = enabled ? history[.codex].snapshot?.accountKey : nil
+        do { try AutoResetAuthorization.setEnabled(enabled, accountKey: account) }
+        catch { autoResetMessage = L("无法保存自动 Reset 设置，请重试。"); return }
+        autoResetEnabled = enabled
+        autoResetMessage = nil
+        if enabled { refresh(provider: .codex); tryAutoReset() }
+    }
+
+    private func tryAutoReset() {
+        guard autoResetEnabled, !autoResetRunning, verified.contains(.codex),
+              errors[.codex] == nil, let snapshot = history[.codex].snapshot,
+              (try? AutoResetAuthorization.authorizedAccount()) == snapshot.accountKey,
+              now.timeIntervalSince(snapshot.fetchedAt) >= 0,
+              now.timeIntervalSince(snapshot.fetchedAt) < 660,
+              let credit = AutoResetPolicy.candidate(credits: snapshot.response.rateLimitResetCredits, now: now),
+              now.timeIntervalSince(autoResetAttempt ?? .distantPast) >= 60 else { return }
+        autoResetRunning = true
+        autoResetAttempt = now
+        autoResetMessage = L("正在确认并使用即将到期的 Reset…")
+        let directory = cacheURL.deletingLastPathComponent()
+        let accountKey = snapshot.accountKey
+        let creditID = credit.id
+        DispatchQueue.global(qos: .utility).async { [weak self] in
+            let result = Result {
+                try AutoResetJournal.perform(directory: directory, accountKey: accountKey, creditID: creditID) { key in
+                    try CodexClient.consumeResetCredit(expectedAccountKey: accountKey, creditID: creditID, idempotencyKey: key)
+                }
+            }
+            Task { @MainActor in
+                guard let self else { return }
+                self.autoResetRunning = false
+                switch result {
+                case .success(.reset): self.autoResetMessage = L("已自动使用 Reset，正在同步额度。")
+                case .success(.alreadyRedeemed): self.autoResetMessage = L("这张 Reset 已使用，正在同步额度。")
+                case .success(.nothingToReset): self.autoResetMessage = L("未使用：当前没有可重置的额度。")
+                case .success(.noCredit): self.autoResetMessage = L("未使用：该 Reset 已不可用。")
+                case .failure(let error):
+                    self.autoResetMessage = L("自动 Reset 未确认：\((error as? LocalizedError)?.errorDescription ?? L("请检查网络后重试。"))")
+                }
+                self.checkAutoResetStatus()
+                self.refresh(provider: .codex)
+                self.onChange?()
+            }
+        }
+    }
+
+    private func checkAutoResetStatus() {
+        guard !autoResetRunning, let account = history[.codex].snapshot?.accountKey else { return }
+        if let value = try? AutoResetJournal.hasUnconfirmed(directory: cacheURL.deletingLastPathComponent(), accountKey: account) {
+            autoResetUnconfirmed = value
+        }
+    }
+
+    func clearUnconfirmedAutoReset() {
+        guard !autoResetRunning, let account = history[.codex].snapshot?.accountKey else { return }
+        do {
+            try AutoResetJournal.clearUnconfirmed(directory: cacheURL.deletingLastPathComponent(), accountKey: account)
+            autoResetUnconfirmed = false
+            autoResetMessage = L("已解除暂停，将继续检查即将到期的 Reset。")
+            refresh(provider: .codex)
+        } catch { autoResetMessage = L("无法保存自动 Reset 记录，操作已暂停。") }
+    }
+
     func selectLanguage(_ value: AppLanguage) {
         Localization.language = value
         language = value
@@ -265,10 +341,22 @@ final class PaceStore: ObservableObject {
             retryAfter[provider] = nil
             verified.insert(provider)
             if provider == .claude { claudeNeedsLogin = false }
+            if provider == .codex, autoResetEnabled,
+               (try? AutoResetAuthorization.authorizedAccount()) != current.accountKey {
+                do {
+                    try AutoResetAuthorization.setEnabled(false, accountKey: nil)
+                    autoResetEnabled = false
+                    autoResetMessage = L("Codex 账户已变化，请重新开启自动 Reset。")
+                } catch {
+                    autoResetEnabled = false
+                    autoResetMessage = L("账户已变化，但无法保存关闭状态；请检查应用存储权限。")
+                }
+            }
             // Commit to the provider that started this request, even if the
             // visible toggle changed while it was loading.
             history[provider].ingest(current)
             persist()
+            if provider == .codex { checkAutoResetStatus(); tryAutoReset() }
         case .failure(let failure):
             errors[provider] = failure
             if let error = failure as? ClaudeUsageError {
