@@ -26,6 +26,7 @@ struct Runner {
         let providers = ProviderTests()
         let resets = ResetTests()
         let autoReset = AutoResetTests()
+        let manualReset = ManualResetTests()
         let web = ClaudeWebTests()
         let radar = ResetRadarTests()
         let session = ClaudeSessionTests()
@@ -66,6 +67,10 @@ struct Runner {
             ("自动 Reset 的 5 分钟边界和指定券", autoReset.testCandidateBoundariesAndSelection),
             ("自动 Reset 幂等恢复和防重复使用", autoReset.testJournalPersistsRetryKeyAndPreventsDoubleSpend),
             ("自动 Reset 协议、授权和账户校验", autoReset.testConsumeProtocolAndAccountCheck),
+            ("手动 Reset 的指定券与到期状态", manualReset.testEligibilityUsesSelectedCreditWithoutDeadline),
+            ("手动 Reset 未消耗后重试及未知结果保护", manualReset.testKnownNoOpCanRetryButUnknownUsesSameKey),
+            ("手动 Reset 无需自动授权且可指定远期券", manualReset.testManualProtocolWorksWithAutomaticOffAndTargetsChosenCredit),
+            ("手动 Reset 账户和券变化时禁止发送", manualReset.testChangedAccountOrCreditDoesNotSend),
             ("Reset 总数、部分明细与未知状态", resets.testResetCountsAndUnknownDetails),
             ("近月窗口、缺失日期与去重", resets.testRollingMonthAndMissingDays),
             ("星期偏好、趋势和稀疏历史", resets.testBusyWeekdayAndTrend),

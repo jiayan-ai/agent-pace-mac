@@ -4,6 +4,11 @@ import PaceCore
 struct ResetInsightsView: View {
     @ObservedObject var store: PaceStore
     @State private var expanded = false
+    @State private var pendingReset: ResetSelection?
+    private struct ResetSelection {
+        let credit: ResetCredit
+        let accountKey: String
+    }
     private var credits: ResetCredits? { store.snapshot?.response.rateLimitResetCredits }
     private var pattern: UsagePattern { store.usagePattern }
     private var advice: ResetAdvice { store.resetAdvice }
@@ -21,14 +26,20 @@ struct ResetInsightsView: View {
                 Text(countLabel)
                     .font(.caption.weight(.semibold)).foregroundStyle(.secondary)
             }
+            resetDetails
+            if store.stale {
+                Text(L("请先同步最新额度，再使用 Reset。"))
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            Divider()
             Toggle(L("到期前 5 分钟自动使用 Reset"), isOn: Binding(get: { store.autoResetEnabled }, set: store.setAutoResetEnabled))
                 .font(.caption)
             Text(L("需保持 Agent Pace 运行且电脑唤醒并联网。重置不会累加额度，可能重新开始周期；操作受账户资格限制，无法保证成功。"))
                 .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             if store.autoResetUnconfirmed {
-                Text(L("上次自动 Reset 的结果尚未确认。请先在 Codex 检查券和额度，再解除暂停；确认前不会使用其他券。"))
+                Text(L("上次 Reset 的结果尚未确认。可重试同一张券；使用其他券前，请先在 Codex 核实并解除暂停。"))
                     .font(.caption).foregroundStyle(.orange).fixedSize(horizontal: false, vertical: true)
-                Button(L("已在 Codex 核实，解除暂停")) { store.clearUnconfirmedAutoReset() }.font(.caption)
+                Button(L("已在 Codex 核实，解除暂停")) { store.clearUnconfirmedAutoReset() }.font(.caption).disabled(store.resetBusy)
             }
             if let message = store.autoResetMessage {
                 Text(message).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
@@ -37,7 +48,7 @@ struct ResetInsightsView: View {
                 .foregroundStyle(advice.kind == .consider ? Color.orange : Color.primary)
             Text(advice.reason).font(.caption).foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
-            DisclosureGroup(L("近 30 天模式与 Reset 明细"), isExpanded: $expanded) {
+            DisclosureGroup(L("近 30 天使用模式"), isExpanded: $expanded) {
                 VStack(alignment: .leading, spacing: 10) {
                     Text(L("近 30 天 · \(pattern.observedDays) 天有记录 · \(pattern.activeDays) 天活跃"))
                         .font(.caption.weight(.medium))
@@ -57,15 +68,27 @@ struct ResetInsightsView: View {
                     } else {
                         Text(L("历史接口尚未返回可用数据，基础额度仍可同步。"))
                     }
-                    Divider()
-                    resetDetails
-                    Text(L("根据历史模式与当前窗口给出规则建议。可选择到期前自动使用，也可以在 Codex 中手动使用。"))
+                    Text(L("根据历史模式与当前窗口给出规则建议。可在这里手动使用 Reset，也可选择到期前自动使用。"))
                         .foregroundStyle(.tertiary)
                 }.font(.caption).foregroundStyle(.secondary).padding(.top, 8)
             }.font(.caption)
         }
         .padding(16)
         .background(.primary.opacity(0.035), in: RoundedRectangle(cornerRadius: 14))
+        .alert(L("使用这张 Reset？"), isPresented: Binding(get: { pendingReset != nil }, set: { if !$0 { pendingReset = nil } })) {
+            if let selection = pendingReset {
+                Button(L("确认使用"), role: .destructive) {
+                    store.useReset(selection.credit, accountKey: selection.accountKey)
+                    pendingReset = nil
+                }
+            }
+            Button(L("取消"), role: .cancel) { pendingReset = nil }
+        } message: {
+            if let selection = pendingReset {
+                Text(L("将消耗这张 Reset 券，恢复符合条件的额度。剩余额度不会累加，重置周期可能重新开始。此操作无法撤销。")
+                     + "\n\n" + (selection.credit.expiryDate.map { L("有效期至") + " " + resetTime($0) } ?? L("服务端未提供到期时间")))
+            }
+        }
     }
 
     private var activityChart: some View {
@@ -94,8 +117,10 @@ struct ResetInsightsView: View {
                 if available.isEmpty && credits.availableCount > 0 {
                     Text(L("服务端返回了数量，但没有可显示的券明细。"))
                 }
-                ForEach(available.sorted { ($0.expiryDate ?? .distantFuture) < ($1.expiryDate ?? .distantFuture) }) { credit in
-                    VStack(alignment: .leading, spacing: 3) {
+                // Enumerated IDs tolerate malformed duplicate server IDs; the policy disables them.
+                ForEach(Array(available.sorted { ($0.expiryDate ?? .distantFuture) < ($1.expiryDate ?? .distantFuture) }.enumerated()), id: \.offset) { _, credit in
+                    HStack(alignment: .center, spacing: 12) {
+                      VStack(alignment: .leading, spacing: 3) {
                         Text(credit.title ?? "Codex Reset").fontWeight(.medium)
                         if let expiry = credit.expiryDate {
                             Text("\(expiry <= store.now ? L("已于") : L("有效期至")) \(resetTime(expiry))")
@@ -103,7 +128,15 @@ struct ResetInsightsView: View {
                             Text(L("服务端未提供到期时间"))
                         }
                         if credit.id == advice.preferredCreditID { Text(L("需要使用时优先考虑此券")).foregroundStyle(.orange) }
+                      }
+                      Spacer()
+                      Button(store.manualResetCreditID == credit.id ? L("使用中…") : L("使用此券")) {
+                          guard let account = store.snapshot?.accountKey else { return }
+                          pendingReset = ResetSelection(credit: credit, accountKey: account)
+                      }
+                      .disabled(!store.canUseReset(credit))
                     }
+                    .font(.caption)
                 }
                 if credits.availableCount > available.count {
                     Text(L("仅展示 \(available.count) 条明细；可用总数以服务端为准。"))

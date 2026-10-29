@@ -21,6 +21,7 @@ A native macOS menu bar app that turns your remaining Codex / Claude subscriptio
 - 超过预算显示红色负数，两个平台和各额度窗口分别保存记录。
 - 每 5 分钟刷新，支持登录 Mac 时启动。
 - Codex reset 券数量、有效期同步；结合近 30 天账户日用量给出使用建议。
+- 可在工具内选择具体的 Codex Reset 券，确认后直接使用。
 - Tibo 公开 reset 动态与原帖链接；工具内一键查看 Will Codex Reset 的 24 / 48 小时预测。
 - 原生 SwiftUI + AppKit，无第三方库；可选的 Reset 自动使用默认关闭。
 
@@ -84,6 +85,12 @@ A native macOS menu bar app that turns your remaining Codex / Claude subscriptio
 
 这是均摊使用建议，不会自动消耗额度。
 
+### 在工具内使用 Reset 券
+
+在 Codex 的 Reset 区域选择一张可用券，确认后即可使用这张券，无需开启自动使用，也不必等到临近到期。Agent Pace 会重新核对当前账户与券的状态，再发出使用请求；能否使用以服务端判断为准。成功后会更新额度和券数。符合条件的额度会恢复，原有剩余额度不会与新额度累加，下次重置时间也可能变化。
+
+如果网络中断导致结果未知，工具会暂停使用其他券，直到结果得到确认。重试同一次请求时沿用相同的请求标识，避免再次消耗另一张券；刷新或重新打开应用不会为结果未明的操作创建新的使用请求。
+
 ### 可选的 Reset 自动使用
 
 自动使用默认关闭。开启后，Agent Pace 会在可用的 Codex Reset 券到期前五分钟尝试使用指定的券。应用需要保持运行、Mac 保持清醒且网络可用；电脑睡眠或应用退出时无法保证准时执行。服务端会判断兑换资格，可能拒绝请求，因此不能保证一定成功。使用后符合条件的额度会恢复，原有剩余额度不会与新额度累加，下次重置时间也可能变化。公开 Reset 动态和预测不会触发使用。随时可以关闭此功能。
@@ -120,7 +127,7 @@ Codex 面板增加「Tibo · Reset 动态」。通过 [Codex Reset 公开 API](h
 
 Agent Pace 不需要 macOS「App 管理」（更新或删除其他应用）权限，也没有应用安装或自动更新功能。可关闭系统设置中的这项授权；「登录 Mac 时启动」是单独的可选登录项设置。
 
-使用官方 [Codex App Server 接口](https://learn.chatgpt.com/docs/app-server)：`initialize`、`account/read`、`account/rateLimits/read`、`account/usage/read`。开启自动使用后还会调用 `account/rateLimitResetCredit/consume`，这是一项可能消耗 Reset 券的写入操作。不会调用 `turn/start`、创建聊天或发起模型推理。
+使用官方 [Codex App Server 接口](https://learn.chatgpt.com/docs/app-server)：`initialize`、`account/read`、`account/rateLimits/read`、`account/usage/read`。确认手动使用或开启自动使用后，还会调用 `account/rateLimitResetCredit/consume`，这是一项可能消耗 Reset 券的写入操作。不会调用 `turn/start`、创建聊天或发起模型推理。
 
 Codex 由已安装的 Codex 程序管理登录，小工具不读取其认证令牌。账户标识（ID 或邮箱）与工作区路由仅取哈希用于区分预算；不保存明文邮箱。额度快照、每日基线、reset 券信息和近 30 天日用量保存在 `~/Library/Application Support/CodexPace/state.json`，沿用旧名称以保留升级前的记录。历史只在本机分析，不上传给其他服务。错误信息不记录原始服务响应。
 

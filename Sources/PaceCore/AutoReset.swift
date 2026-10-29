@@ -23,13 +23,31 @@ public enum AutoResetOutcome: String, Codable {
     case reset, nothingToReset, noCredit, alreadyRedeemed
 }
 
+public enum ResetRedemptionMode {
+    case automatic
+    case manual(expectedExpiry: Date?)
+}
+
+public enum ManualResetPolicy {
+    public static func credit(id: String, credits: ResetCredits?, now: Date) -> ResetCredit? {
+        guard !id.isEmpty, let credits, credits.availableCount > 0 else { return nil }
+        let matches = (credits.credits ?? []).filter { $0.id == id }
+        guard matches.count == 1, let credit = matches.first,
+              credit.status == "available", credit.resetType == "codexRateLimits",
+              credit.expiresAt == nil || credit.expiresAt.map({ $0.isFinite && $0 <= 253_402_300_799 }) == true,
+              credit.expiresAt == nil || credit.expiryDate.map({ $0 > now }) == true else { return nil }
+        return credit
+    }
+}
+
 public enum AutoResetError: LocalizedError {
-    case accountChanged, creditChanged, disabled
+    case accountChanged, creditChanged, disabled, beforeSend(String)
     public var errorDescription: String? {
         switch self {
         case .disabled: return L("自动 Reset 已关闭。")
-        case .accountChanged: return L("Codex 账户已变化，已取消自动 Reset。")
+        case .accountChanged: return L("Codex 账户已变化，已取消本次 Reset。")
         case .creditChanged: return L("Reset 券状态已变化，已取消本次操作。")
+        case .beforeSend(let message): return message
         }
     }
 }
@@ -62,6 +80,7 @@ public enum AutoResetJournal {
     private struct State: Codable { var attempts: [String: Attempt] = [:] }
 
     public static func perform(directory: URL, accountKey: String, creditID: String,
+                               retryKnownUnused: Bool = false,
                                redeem: (String) throws -> AutoResetOutcome) throws -> AutoResetOutcome {
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let lockURL = directory.appendingPathComponent("auto-reset.lock")
@@ -76,7 +95,11 @@ public enum AutoResetJournal {
             state = try JSONDecoder().decode(State.self, from: Data(contentsOf: file))
         } else { state = State() }
         let entryID = accountKey + ":" + creditID
-        if let outcome = state.attempts[entryID]?.outcome { return outcome }
+        if let outcome = state.attempts[entryID]?.outcome {
+            if retryKnownUnused && (outcome == .nothingToReset || outcome == .noCredit) {
+                state.attempts.removeValue(forKey: entryID)
+            } else { return outcome }
+        }
         if state.attempts[entryID]?.resolvedAt != nil { throw AutoResetJournalError.resolved }
         if state.attempts.contains(where: { id, attempt in
             id.hasPrefix(accountKey + ":") && id != entryID && attempt.outcome == nil && attempt.resolvedAt == nil
@@ -147,10 +170,10 @@ public enum AutoResetJournalError: LocalizedError {
     case storage, busy, cooldown, unconfirmed, resolved
     public var errorDescription: String? {
         switch self {
-        case .resolved: return L("此券的未确认记录已由你核实，不会再次自动使用。")
-        case .unconfirmed: return L("上次自动 Reset 的结果尚未确认，请在 Codex 核实后解除暂停。")
-        case .storage: return L("无法保存自动 Reset 记录，操作已暂停。")
-        case .busy: return L("自动 Reset 正在处理。")
+        case .resolved: return L("此券的未确认记录已由你核实；如仍需使用，请在 Codex 操作。")
+        case .unconfirmed: return L("上次 Reset 的结果尚未确认，请在 Codex 核实后解除暂停。")
+        case .storage: return L("无法保存 Reset 记录，操作已暂停。")
+        case .busy: return L("Reset 正在处理，请稍后再试。")
         case .cooldown: return L("刚完成一次 Reset，暂不连续使用另一张。")
         }
     }

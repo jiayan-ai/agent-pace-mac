@@ -7,7 +7,9 @@ final class PaceStore: ObservableObject {
     @Published private(set) var autoResetEnabled = (try? AutoResetAuthorization.authorizedAccount()) != nil
     @Published private(set) var autoResetUnconfirmed = false
     @Published private(set) var autoResetMessage: String?
-    private var autoResetRunning = false
+    @Published private var autoResetRunning = false
+    @Published private(set) var manualResetCreditID: String?
+    var resetBusy: Bool { autoResetRunning || manualResetCreditID != nil }
     private var autoResetAttempt: Date?
     @Published private var history = PaceHistory()
     @Published private var refreshing: Set<UsageProvider> = []
@@ -169,7 +171,7 @@ final class PaceStore: ObservableObject {
     }
 
     private func tryAutoReset() {
-        guard autoResetEnabled, !autoResetRunning, verified.contains(.codex),
+        guard autoResetEnabled, !resetBusy, !refreshing.contains(.codex), verified.contains(.codex),
               errors[.codex] == nil, let snapshot = history[.codex].snapshot,
               (try? AutoResetAuthorization.authorizedAccount()) == snapshot.accountKey,
               now.timeIntervalSince(snapshot.fetchedAt) >= 0,
@@ -207,20 +209,74 @@ final class PaceStore: ObservableObject {
     }
 
     private func checkAutoResetStatus() {
-        guard !autoResetRunning, let account = history[.codex].snapshot?.accountKey else { return }
+        guard !resetBusy, let account = history[.codex].snapshot?.accountKey else { return }
         if let value = try? AutoResetJournal.hasUnconfirmed(directory: cacheURL.deletingLastPathComponent(), accountKey: account) {
             autoResetUnconfirmed = value
         }
     }
 
     func clearUnconfirmedAutoReset() {
-        guard !autoResetRunning, let account = history[.codex].snapshot?.accountKey else { return }
+        guard !resetBusy, let account = history[.codex].snapshot?.accountKey else { return }
         do {
             try AutoResetJournal.clearUnconfirmed(directory: cacheURL.deletingLastPathComponent(), accountKey: account)
             autoResetUnconfirmed = false
-            autoResetMessage = L("已解除暂停，将继续检查即将到期的 Reset。")
+            autoResetMessage = L("已解除暂停；已核实的旧操作不会重新提交。")
             refresh(provider: .codex)
         } catch { autoResetMessage = L("无法保存自动 Reset 记录，操作已暂停。") }
+    }
+
+    func canUseReset(_ credit: ResetCredit) -> Bool {
+        guard provider == .codex, !resetBusy, !isRefreshing, !stale,
+              let snapshot, Date().timeIntervalSince(snapshot.fetchedAt) >= 0 else { return false }
+        return ManualResetPolicy.credit(id: credit.id, credits: snapshot.response.rateLimitResetCredits, now: Date()) != nil
+    }
+
+    func useReset(_ credit: ResetCredit, accountKey: String) {
+        guard !resetBusy else { return }
+        guard history[.codex].snapshot?.accountKey == accountKey else {
+            autoResetMessage = AutoResetError.accountChanged.errorDescription
+            return
+        }
+        guard canUseReset(credit) else {
+            autoResetMessage = L("请先同步最新额度，再使用 Reset。")
+            refresh(provider: .codex)
+            return
+        }
+        manualResetCreditID = credit.id
+        autoResetMessage = L("正在确认并使用这张 Reset…")
+        let directory = cacheURL.deletingLastPathComponent()
+        let creditID = credit.id
+        let expectedExpiry = credit.expiryDate
+        DispatchQueue.global(qos: .utility).async { [weak self] in
+            let result = Result {
+                try AutoResetJournal.perform(directory: directory, accountKey: accountKey, creditID: creditID,
+                                             retryKnownUnused: true) { key in
+                    try CodexClient.consumeResetCredit(expectedAccountKey: accountKey, creditID: creditID,
+                                                       idempotencyKey: key, mode: .manual(expectedExpiry: expectedExpiry))
+                }
+            }
+            Task { @MainActor in
+                guard let self else { return }
+                self.manualResetCreditID = nil
+                // Let the fresh response arrive before another automatic attempt.
+                self.autoResetAttempt = Date()
+                if self.history[.codex].snapshot?.accountKey == accountKey {
+                    switch result {
+                    case .success(.reset): self.autoResetMessage = L("已使用 Reset，正在同步额度。")
+                    case .success(.alreadyRedeemed): self.autoResetMessage = L("这张 Reset 已使用，正在同步额度。")
+                    case .success(.nothingToReset): self.autoResetMessage = L("未使用：当前没有可重置的额度。")
+                    case .success(.noCredit): self.autoResetMessage = L("未使用：该 Reset 已不可用。")
+                    case .failure(let error):
+                        self.autoResetMessage = (error as? LocalizedError)?.errorDescription ?? L("Reset 结果未确认，请刷新额度或在 Codex 核对。")
+                    }
+                } else {
+                    self.autoResetMessage = L("账户已切换，请回到原账户核对 Reset 结果。")
+                }
+                self.checkAutoResetStatus()
+                self.refresh(provider: .codex)
+                self.onChange?()
+            }
+        }
     }
 
     func selectLanguage(_ value: AppLanguage) {
@@ -316,6 +372,7 @@ final class PaceStore: ObservableObject {
     }
 
     private func refresh(provider: UsageProvider) {
+        guard provider != .codex || !resetBusy else { return }
         guard provider != .claude || (claudeEnabled && !claudeNeedsLogin && !disconnectingClaude) else { return }
         guard !refreshing.contains(provider), Date() >= (retryAfter[provider] ?? .distantPast) else { return }
         refreshing.insert(provider)

@@ -152,88 +152,112 @@ public enum CodexClient {
     /// The caller must durably store the idempotency key before entering this method.
     public static func consumeResetCredit(expectedAccountKey: String, creditID: String, idempotencyKey: String,
                                           executable override: URL? = nil, timeout: TimeInterval = 30,
-                                          authorizationDirectory: URL? = nil) throws -> AutoResetOutcome {
-        guard let binary = override ?? executable() else { throw UsageError.missingCodex }
-        let process = Process()
-        let input = Pipe(), output = Pipe()
-        process.executableURL = binary
-        process.arguments = ["app-server", "--listen", "stdio://"]
-        process.currentDirectoryURL = FileManager.default.homeDirectoryForCurrentUser
-        process.standardInput = input
-        process.standardOutput = output
-        process.standardError = FileHandle.nullDevice
-        try process.run()
-        defer {
-            try? input.fileHandleForWriting.close()
-            if process.isRunning { process.terminate() }
-            let end = ProcessInfo.processInfo.systemUptime + 0.5
-            while process.isRunning && ProcessInfo.processInfo.systemUptime < end { Thread.sleep(forTimeInterval: 0.02) }
-            if process.isRunning { kill(process.processIdentifier, SIGKILL) }
-            process.waitUntilExit()
-            try? output.fileHandleForReading.close()
-        }
-        func send(_ value: [String: Any]) throws {
-            var data = try JSONSerialization.data(withJSONObject: value)
-            data.append(10)
-            try input.fileHandleForWriting.write(contentsOf: data)
-        }
-        try send(["id": 1, "method": "initialize", "params": ["clientInfo": ["name": "agent_pace", "title": "Agent Pace", "version": "1.7.1"], "capabilities": ["experimentalApi": true, "requestAttestation": false]]])
-        let fd = output.fileHandleForReading.fileDescriptor
-        _ = fcntl(fd, F_SETFL, fcntl(fd, F_GETFL) | O_NONBLOCK)
-        var buffer = Data()
-        let deadline = ProcessInfo.processInfo.systemUptime + timeout
-        while ProcessInfo.processInfo.systemUptime < deadline {
-            var event = pollfd(fd: fd, events: Int16(POLLIN), revents: 0)
-            let ready = poll(&event, 1, 200)
-            if ready < 0 && errno == EINTR { continue }
-            if ready > 0 {
-                var bytes = [UInt8](repeating: 0, count: 8192)
-                let count = read(fd, &bytes, bytes.count)
-                if count > 0 { buffer.append(contentsOf: bytes.prefix(count)) }
-                if count == 0 { throw UsageError.exited }
-                if buffer.count > 4_000_000 { throw UsageError.invalidResponse }
-                while let newline = buffer.firstIndex(of: 10) {
-                    let line = buffer.prefix(upTo: newline)
-                    buffer.removeSubrange(...newline)
-                    guard let message = try? JSONSerialization.jsonObject(with: line) as? [String: Any] else { continue }
-                    if message["method"] != nil, let id = message["id"] {
-                        try send(["id": id, "error": ["code": -32601, "message": "Unsupported request"]])
-                        continue
-                    }
-                    guard let id = message["id"] as? Int else { continue }
-                    if message["error"] != nil { throw UsageError.server }
-                    guard let result = message["result"] as? [String: Any] else { throw UsageError.invalidResponse }
-                    switch id {
-                    case 1:
-                        try send(["method": "initialized", "params": [:]])
-                        try send(["id": 2, "method": "account/read", "params": ["refreshToken": false]])
-                    case 2:
-                        guard let account = result["account"] as? [String: Any], account["type"] as? String == "chatgpt",
-                              let identity = (account["id"] ?? account["email"]) as? String else { throw UsageError.notSignedIn }
-                        let scope: [String: Any] = ["identity": identity, "workspace": result["workspaceRouting"] ?? NSNull()]
-                        let scopeData = try JSONSerialization.data(withJSONObject: scope, options: .sortedKeys)
-                        let accountKey = SHA256.hash(data: scopeData).map { String(format: "%02x", $0) }.joined()
-                        guard accountKey == expectedAccountKey else { throw AutoResetError.accountChanged }
-                        try send(["id": 3, "method": "account/rateLimits/read"])
-                    case 3:
-                        let data = try JSONSerialization.data(withJSONObject: result)
-                        let response = try JSONDecoder().decode(UsageResponse.self, from: data)
-                        guard AutoResetPolicy.candidate(credits: response.rateLimitResetCredits, now: Date())?.id == creditID else {
-                            throw AutoResetError.creditChanged
+                                          authorizationDirectory: URL? = nil,
+                                          mode: ResetRedemptionMode = .automatic) throws -> AutoResetOutcome {
+        var consumeSent = false
+        do {
+            guard !expectedAccountKey.isEmpty, !creditID.isEmpty, !idempotencyKey.isEmpty else { throw AutoResetError.creditChanged }
+            guard let binary = override ?? executable() else { throw UsageError.missingCodex }
+            let process = Process()
+            let input = Pipe(), output = Pipe()
+            process.executableURL = binary
+            process.arguments = ["app-server", "--listen", "stdio://"]
+            process.currentDirectoryURL = FileManager.default.homeDirectoryForCurrentUser
+            process.standardInput = input
+            process.standardOutput = output
+            process.standardError = FileHandle.nullDevice
+            try process.run()
+            defer {
+                try? input.fileHandleForWriting.close()
+                if process.isRunning { process.terminate() }
+                let end = ProcessInfo.processInfo.systemUptime + 0.5
+                while process.isRunning && ProcessInfo.processInfo.systemUptime < end { Thread.sleep(forTimeInterval: 0.02) }
+                if process.isRunning { kill(process.processIdentifier, SIGKILL) }
+                process.waitUntilExit()
+                try? output.fileHandleForReading.close()
+            }
+            func send(_ value: [String: Any]) throws {
+                var data = try JSONSerialization.data(withJSONObject: value)
+                data.append(10)
+                try input.fileHandleForWriting.write(contentsOf: data)
+            }
+            try send(["id": 1, "method": "initialize", "params": ["clientInfo": ["name": "agent_pace", "title": "Agent Pace", "version": "1.9.0"], "capabilities": ["experimentalApi": true, "requestAttestation": false]]])
+            let fd = output.fileHandleForReading.fileDescriptor
+            _ = fcntl(fd, F_SETFL, fcntl(fd, F_GETFL) | O_NONBLOCK)
+            var buffer = Data()
+            let deadline = ProcessInfo.processInfo.systemUptime + timeout
+            while ProcessInfo.processInfo.systemUptime < deadline {
+                var event = pollfd(fd: fd, events: Int16(POLLIN), revents: 0)
+                let ready = poll(&event, 1, 200)
+                if ready < 0 && errno == EINTR { continue }
+                if ready > 0 {
+                    var bytes = [UInt8](repeating: 0, count: 8192)
+                    let count = read(fd, &bytes, bytes.count)
+                    if count > 0 { buffer.append(contentsOf: bytes.prefix(count)) }
+                    if count == 0 { throw UsageError.exited }
+                    if buffer.count > 4_000_000 { throw UsageError.invalidResponse }
+                    while let newline = buffer.firstIndex(of: 10) {
+                        let line = buffer.prefix(upTo: newline)
+                        buffer.removeSubrange(...newline)
+                        guard let message = try? JSONSerialization.jsonObject(with: line) as? [String: Any] else { continue }
+                        if message["method"] != nil, let id = message["id"] {
+                            try send(["id": id, "error": ["code": -32601, "message": "Unsupported request"]])
+                            continue
                         }
-                        try AutoResetAuthorization.sendIfEnabled(accountKey: expectedAccountKey, directory: authorizationDirectory) {
-                            try send(["id": 4, "method": "account/rateLimitResetCredit/consume", "params": ["creditId": creditID, "idempotencyKey": idempotencyKey]])
+                        guard let id = message["id"] as? Int else { continue }
+                        if message["error"] != nil { throw UsageError.server }
+                        guard let result = message["result"] as? [String: Any] else { throw UsageError.invalidResponse }
+                        switch id {
+                        case 1:
+                            try send(["method": "initialized", "params": [:]])
+                            try send(["id": 2, "method": "account/read", "params": ["refreshToken": false]])
+                        case 2:
+                            guard let account = result["account"] as? [String: Any], account["type"] as? String == "chatgpt",
+                                  let identity = (account["id"] ?? account["email"]) as? String else { throw UsageError.notSignedIn }
+                            let scope: [String: Any] = ["identity": identity, "workspace": result["workspaceRouting"] ?? NSNull()]
+                            let scopeData = try JSONSerialization.data(withJSONObject: scope, options: .sortedKeys)
+                            let accountKey = SHA256.hash(data: scopeData).map { String(format: "%02x", $0) }.joined()
+                            guard accountKey == expectedAccountKey else { throw AutoResetError.accountChanged }
+                            try send(["id": 3, "method": "account/rateLimits/read"])
+                        case 3:
+                            let data = try JSONSerialization.data(withJSONObject: result)
+                            let response = try JSONDecoder().decode(UsageResponse.self, from: data)
+                            switch mode {
+                            case .automatic:
+                                guard AutoResetPolicy.candidate(credits: response.rateLimitResetCredits, now: Date())?.id == creditID else {
+                                    throw AutoResetError.creditChanged
+                                }
+                            case .manual(let expectedExpiry):
+                                guard let credit = ManualResetPolicy.credit(id: creditID, credits: response.rateLimitResetCredits, now: Date()),
+                                      credit.expiryDate == expectedExpiry else { throw AutoResetError.creditChanged }
+                            }
+                            func consume() throws {
+                                // Mark before writing: a partial write may already reach the server.
+                                consumeSent = true
+                                try send(["id": 4, "method": "account/rateLimitResetCredit/consume", "params": ["creditId": creditID, "idempotencyKey": idempotencyKey]])
+                            }
+                            switch mode {
+                            case .automatic:
+                                try AutoResetAuthorization.sendIfEnabled(accountKey: expectedAccountKey, directory: authorizationDirectory, action: consume)
+                            case .manual:
+                                try consume()
+                            }
+                        case 4:
+                            guard let raw = result["outcome"] as? String, let outcome = AutoResetOutcome(rawValue: raw) else { throw UsageError.invalidResponse }
+                            return outcome
+                        default: break
                         }
-                    case 4:
-                        guard let raw = result["outcome"] as? String, let outcome = AutoResetOutcome(rawValue: raw) else { throw UsageError.invalidResponse }
-                        return outcome
-                    default: break
                     }
                 }
+                if !process.isRunning { throw UsageError.exited }
             }
-            if !process.isRunning { throw UsageError.exited }
+            throw UsageError.timeout
+        } catch {
+            if !consumeSent, !(error is AutoResetError) {
+                throw AutoResetError.beforeSend((error as? LocalizedError)?.errorDescription ?? L("额度同步失败，请稍后重试。"))
+            }
+            throw error
         }
-        throw UsageError.timeout
     }
 
 }

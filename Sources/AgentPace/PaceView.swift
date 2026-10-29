@@ -182,7 +182,7 @@ struct PaceView: View {
             }.foregroundStyle(accent).accessibilityElement(children: .combine)
             Text(pace.isFinalHour ? L("不足 1 小时，显示到期前的实际剩余额度。") : L("按当前剩余额度和到期前的小时数动态均摊。"))
                 .font(.caption).foregroundStyle(.secondary)
-            Text(store.autoResetEnabled ? L("已开启到期前自动使用；电脑需保持唤醒并联网。") : L("到期不会自动恢复额度；如需使用 Reset，请在 Codex 中手动操作。"))
+            Text(store.autoResetEnabled ? L("已开启到期前自动使用；电脑需保持唤醒并联网。") : L("到期不会自动恢复额度；可在下方 Reset 助手中使用。"))
                 .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
         }
         .padding(18)
