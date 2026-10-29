@@ -58,10 +58,8 @@ final class PaceStore: ObservableObject {
                         $0.window.windowDurationMins == 300 &&
                         ClaudeSessionPace(window: $0.window, now: self.now).awaitingReset
                     } ?? false)
-                    let creditExpired = provider == .codex && (record.snapshot?.response.rateLimitResetCredits?.availableCount ?? 0) > 0 && (record.snapshot?.response.rateLimitResetCredits?.credits?.contains {
-                        $0.status == "available" && $0.resetType == "codexRateLimits" &&
-                        $0.expiryDate.map { $0 <= self.now } == true
-                    } ?? false)
+                    let creditExpired = provider == .codex && ResetCreditPace.expiredDetailsNeedRefresh(
+                        credits: record.snapshot?.response.rateLimitResetCredits, now: self.now)
                     let interval: TimeInterval = crossedDay || sessionResetPassed || creditExpired ? 60 : 300
                     if self.now.timeIntervalSince(self.lastAttempt[provider] ?? .distantPast) >= interval {
                         self.refresh(provider: provider)
@@ -98,13 +96,9 @@ final class PaceStore: ObservableObject {
     var creditPlanNeedsConfirmation: Bool {
         guard provider == .codex, let snapshot, let selected, selected.bucketID == "codex",
               let credits = snapshot.response.rateLimitResetCredits, credits.availableCount > 0 else { return false }
-        let expired = (credits.credits ?? []).contains {
-            $0.status == "available" && $0.resetType == "codexRateLimits" &&
-            $0.expiryDate.map { $0 <= now } == true
-        }
-        let unverified = stale || now.timeIntervalSince(snapshot.fetchedAt) < 0
-        return expired || (unverified && ResetCreditPace.evaluate(window: selected.window, credits: credits,
-                                                                    stale: false, now: now) != nil)
+        return ResetCreditPace.needsConfirmation(window: selected.window, credits: credits, stale: stale,
+                                                  snapshotInFuture: now.timeIntervalSince(snapshot.fetchedAt) < 0,
+                                                  now: now)
     }
     var budget: DailyBudget? {
         guard let selected, let snapshot else { return nil }

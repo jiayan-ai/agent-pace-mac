@@ -78,9 +78,9 @@ If you use 17 percentage points against a 10% allowance, the balance is **−7.0
 
 ### Codex reset credit expiring sooner
 
-When a usable Codex reset credit has a known expiry before the selected main Codex quota window's natural reset, Agent Pace uses the **credit expiry as a planning deadline**. The main panel and menu bar show a rolling hourly suggestion instead of the daily balance, even if the earlier daily budget was exceeded. For example, 50% of the window remaining with 10 hours until the credit expires gives **5% / hour**. The countdown and suggestion change as time passes and usage is synced. In the final partial hour, the panel shows the actual remaining quota before expiry.
+When a usable Codex reset credit expires within 72 hours and before the selected main Codex quota window's natural reset, Agent Pace uses the **credit expiry as a planning deadline**. The main panel and menu bar show a rolling hourly suggestion instead of the daily balance, even if the earlier daily budget was exceeded. For example, 50% of the window remaining with 10 hours until the credit expires gives **5% / hour**. The countdown and suggestion change as time passes and usage is synced. In the final partial hour, the panel shows the actual remaining quota before expiry.
 
-This is a plan for the existing quota, not an automatic reset. The credit expiring does **not** reset the account; use it manually in Codex if needed. The natural reset remains separate. The app uses the earliest known, available credit, requires confirmed account data, and never guesses an unknown expiry. If a credit reaches its recorded expiry while the server still reports it as available, refresh to confirm the current status.
+This is a plan for the existing quota, not an automatic reset. The credit expiring does **not** reset the account; use it manually in Codex if needed. The natural reset remains separate. When no credit meets these conditions, the normal daily budget remains in view. The app uses the earliest known, available credit, requires confirmed account data, and never guesses an unknown expiry. If a credit reaches its recorded expiry while the server still reports it as available, refresh to confirm the current status.
 
 ### Claude's five-hour window
 

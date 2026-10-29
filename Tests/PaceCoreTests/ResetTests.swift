@@ -119,6 +119,49 @@ struct ResetTests {
         try expect(empty.allowance == 0)
     }
 
+    func testCreditPaceThreeDayHorizonAndConfirmation() throws {
+        let window = UsageWindow(usedPercent: 40, windowDurationMins: 10080,
+                                 resetsAt: now.addingTimeInterval(7 * 86400).timeIntervalSince1970)
+        let outside = try creditDetails(count: 1, entries: [("outside", "available", "codexRateLimits", 72 + 1.0 / 3600)])
+        let exact = try creditDetails(count: 1, entries: [("exact", "available", "codexRateLimits", 72)])
+        func pace(_ credits: ResetCredits, at time: Date) -> ResetCreditPace? {
+            ResetCreditPace.evaluate(window: window, credits: credits, stale: false, now: time)
+        }
+        func confirm(_ credits: ResetCredits, stale: Bool = false, future: Bool = false, at time: Date? = nil) -> Bool {
+            ResetCreditPace.needsConfirmation(window: window, credits: credits, stale: stale,
+                                              snapshotInFuture: future, now: time ?? now)
+        }
+        try expect(pace(outside, at: now) == nil)
+        try expect(!confirm(outside, stale: true) && !confirm(outside, future: true))
+        try expect(try require(pace(exact, at: now)).creditID == "exact")
+        try expect(try require(pace(outside, at: now.addingTimeInterval(1))).creditID == "outside")
+        try expect(confirm(exact, stale: true) && confirm(exact, future: true))
+        try expect(!confirm(exact))
+        let multiple = try creditDetails(count: 2, entries: [("late", "available", "codexRateLimits", 80),
+                                                             ("early", "available", "codexRateLimits", 70)])
+        try expect(try require(pace(multiple, at: now)).creditID == "early")
+        let ancient = try creditDetails(count: 2, entries: [("old", "available", "codexRateLimits", -73),
+                                                            ("late", "available", "codexRateLimits", 80)])
+        try expect(!confirm(ancient, stale: true))
+        try expect(!ResetCreditPace.expiredDetailsNeedRefresh(credits: ancient, now: now))
+        let recentlyExpired = try creditDetails(count: 1, entries: [("expired", "available", "codexRateLimits", -0.1)])
+        try expect(confirm(recentlyExpired))
+        try expect(ResetCreditPace.expiredDetailsNeedRefresh(credits: recentlyExpired, now: now))
+        let atExpiredBoundary = try creditDetails(count: 1, entries: [("expired", "available", "codexRateLimits", -72)])
+        try expect(ResetCreditPace.expiredDetailsNeedRefresh(credits: atExpiredBoundary, now: now))
+        try expect(!ResetCreditPace.expiredDetailsNeedRefresh(credits: atExpiredBoundary, now: now.addingTimeInterval(1)))
+        let uncertain = try creditDetails(count: 2, entries: [("old", "available", "codexRateLimits", -73),
+                                                               ("early", "available", "codexRateLimits", 70)])
+        try expect(confirm(uncertain) && pace(uncertain, at: now) == nil)
+        try expect(ResetCreditPace.expiredDetailsNeedRefresh(credits: uncertain, now: now))
+        try expect(!ResetCreditPace.expiredDetailsNeedRefresh(credits: nil, now: now))
+        let soonerReset = UsageWindow(usedPercent: 40, windowDurationMins: 10080,
+                                       resetsAt: now.addingTimeInterval(60 * 3600).timeIntervalSince1970)
+        try expect(!ResetCreditPace.needsConfirmation(window: soonerReset, credits: exact, stale: true,
+                                                       snapshotInFuture: false, now: now))
+        try expect(ResetCreditPace.evaluate(window: soonerReset, credits: exact, stale: false, now: now) == nil)
+    }
+
     private func creditDetails(count: Int, entries: [(String, String, String, Double?)]) throws -> ResetCredits {
         let values: [[String: Any]] = entries.map { id, status, type, hours in
             var value: [String: Any] = ["id": id, "status": status, "resetType": type]

@@ -69,6 +69,7 @@ struct Runner {
             ("过期券与额度重置边界", resets.testExpiringCreditsAndResetBoundaries),
             ("Reset 券到期前按小时滚动均摊", resets.testCreditPaceUsesEarliestExpiryAndCurrentRemaining),
             ("Reset 券未知、过期与自然重置边界", resets.testCreditPaceRejectsUncertainOrInapplicableData),
+            ("Reset 券三天门槛及同步状态", resets.testCreditPaceThreeDayHorizonAndConfirmation),
             ("历史持久化、旧数据迁移与账户隔离", resets.testActivityPersistenceAndAccountIsolation),
             ("全局 reset、发券与来源核验等级", radar.testRecordedConfirmedAndBankedAreDistinct),
             ("Tibo 动态跨时区和午夜归属", radar.testTodayUsesLocalDayInsteadOfUpstreamUTCStatus),

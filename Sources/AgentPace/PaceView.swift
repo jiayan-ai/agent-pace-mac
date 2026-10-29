@@ -230,7 +230,7 @@ struct PaceView: View {
                         Text(L("\(number(pace.remaining))% ÷ \(String(format: "%.2f", pace.secondsRemaining / 3600)) 小时 = \(number(pace.allowance))% / 小时"))
                             .font(.callout.weight(.medium)).monospacedDigit()
                     }
-                    Text(L("仅在有明确到期时间的可用 Reset 券早于自然重置时，按最早到期券规划；不足 1 小时显示实际剩余额度。"))
+                    Text(L("仅当可用 Reset 券在 72 小时内到期且早于自然重置时，按最早到期券规划；不足 1 小时显示实际剩余额度。"))
                     Text(L("这是用量建议，券到期不会自动重置，实际使用仍受其他额度窗口限制。"))
                 } else if store.creditPlanNeedsConfirmation {
                     Text(L("Reset 券状态待同步确认，请刷新额度。"))

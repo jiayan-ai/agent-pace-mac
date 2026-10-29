@@ -220,7 +220,7 @@ enum EnglishStrings {
         "不足 1 小时，显示到期前的实际剩余额度。": "Less than an hour left; showing the actual remaining quota before expiry.",
         "按当前剩余额度和到期前的小时数动态均摊。": "The current remaining quota is spread evenly over the hours until expiry.",
         "到期不会自动恢复额度；如需使用 Reset，请在 Codex 中手动操作。": "Expiry does not restore quota automatically. Redeem a reset manually in Codex if needed.",
-        "仅在有明确到期时间的可用 Reset 券早于自然重置时，按最早到期券规划；不足 1 小时显示实际剩余额度。": "When a reset credit with a known expiry expires before the natural reset, pace until the earliest expiry. In the final hour, the actual remaining quota is shown.",
+        "仅当可用 Reset 券在 72 小时内到期且早于自然重置时，按最早到期券规划；不足 1 小时显示实际剩余额度。": "When an available reset credit expires within 72 hours and before the natural reset, pace until the earliest expiry. In the final hour, the actual remaining quota is shown.",
         "这是用量建议，券到期不会自动重置，实际使用仍受其他额度窗口限制。": "This is pacing guidance. Expiry does not reset quota, and other quota windows still apply.",
     ]
 }
