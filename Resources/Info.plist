@@ -6,8 +6,8 @@
     <key>CFBundleDisplayName</key><string>Agent Pace</string>
     <key>CFBundleExecutable</key><string>AgentPace</string>
     <key>CFBundlePackageType</key><string>APPL</string>
-    <key>CFBundleShortVersionString</key><string>1.6.0</string>
-    <key>CFBundleVersion</key><string>10</string>
+    <key>CFBundleShortVersionString</key><string>1.7.0</string>
+    <key>CFBundleVersion</key><string>11</string>
     <key>CFBundleDevelopmentRegion</key><string>en</string>
     <key>CFBundleLocalizations</key><array><string>en</string><string>zh-Hans</string></array>
     <key>CFBundleIconFile</key><string>AppIcon</string>

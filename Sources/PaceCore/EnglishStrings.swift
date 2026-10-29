@@ -211,5 +211,16 @@ enum EnglishStrings {
         "语言": "Language",
         "跟随系统": "System",
         "{0}：{1}": "{0}: {1}",
+        "Codex · Reset 券到期前建议 {0}\n距到期 {1}": "Codex · Before reset credit expiry: {0}\nExpires in {1}",
+        "Reset 券状态待同步确认，请刷新额度。": "Reset credit status needs confirmation. Refresh usage.",
+        "距离自然重置": "Natural reset in",
+        "Reset 券到期倒计时": "Reset credit expires in",
+        "有效期至 {0}": "Expires {0}",
+        "到期前还可以用": "Available before expiry",
+        "不足 1 小时，显示到期前的实际剩余额度。": "Less than an hour left; showing the actual remaining quota before expiry.",
+        "按当前剩余额度和到期前的小时数动态均摊。": "The current remaining quota is spread evenly over the hours until expiry.",
+        "到期不会自动恢复额度；如需使用 Reset，请在 Codex 中手动操作。": "Expiry does not restore quota automatically. Redeem a reset manually in Codex if needed.",
+        "仅在有明确到期时间的可用 Reset 券早于自然重置时，按最早到期券规划；不足 1 小时显示实际剩余额度。": "When a reset credit with a known expiry expires before the natural reset, pace until the earliest expiry. In the final hour, the actual remaining quota is shown.",
+        "这是用量建议，券到期不会自动重置，实际使用仍受其他额度窗口限制。": "This is pacing guidance. Expiry does not reset quota, and other quota windows still apply.",
     ]
 }

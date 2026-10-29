@@ -77,6 +77,57 @@ struct ResetTests {
         let unknownKind = try JSONDecoder().decode(ResetCredits.self, from: Data(#"{"availableCount":1,"credits":[{"id":"future","status":"future-status","resetType":"future-kind"}]}"#.utf8))
         try expect(unknownKind.usableDetails(at: now).isEmpty)
     }
+    func testCreditPaceUsesEarliestExpiryAndCurrentRemaining() throws {
+        let credits = try creditDetails(count: 2, entries: [("later", "available", "codexRateLimits", 20),
+                                                           ("earlier", "available", "codexRateLimits", 10)])
+        let window = UsageWindow(usedPercent: 40, windowDurationMins: 10080,
+                                 resetsAt: now.addingTimeInterval(6 * 86400).timeIntervalSince1970)
+        let pace = try require(ResetCreditPace.evaluate(window: window, credits: credits, stale: false, now: now))
+        try expect(pace.creditID == "earlier" && abs(pace.allowance - 6) < 0.001)
+        try expect(!pace.isFinalHour && pace.countdown == "10 小时 0 分钟")
+        let later = now.addingTimeInterval(2 * 3600)
+        let consumed = UsageWindow(usedPercent: 52, windowDurationMins: 10080, resetsAt: window.resetsAt)
+        let updated = try require(ResetCreditPace.evaluate(window: consumed, credits: credits, stale: false, now: later))
+        try expect(abs(updated.allowance - 6) < 0.001)
+        let final = try require(ResetCreditPace.evaluate(window: consumed, credits: credits, stale: false,
+                                                        now: now.addingTimeInterval(9.5 * 3600)))
+        try expect(final.isFinalHour && final.allowance == 48 && final.countdown == "30 分钟")
+    }
+
+    func testCreditPaceRejectsUncertainOrInapplicableData() throws {
+        let window = UsageWindow(usedPercent: 40, windowDurationMins: 10080,
+                                 resetsAt: now.addingTimeInterval(20 * 3600).timeIntervalSince1970)
+        let good = try creditDetails(count: 1, entries: [("good", "available", "codexRateLimits", 10)])
+        func evaluate(_ credits: ResetCredits?, _ selected: UsageWindow? = nil, stale: Bool = false, at time: Date? = nil) -> ResetCreditPace? {
+            ResetCreditPace.evaluate(window: selected ?? window, credits: credits, stale: stale, now: time ?? now)
+        }
+        try expect(evaluate(good, stale: true) == nil)
+        try expect(evaluate(nil) == nil)
+        try expect(evaluate(try creditDetails(count: 0, entries: [("good", "available", "codexRateLimits", 10)])) == nil)
+        try expect(evaluate(try creditDetails(count: 1, entries: [("unknown", "available", "codexRateLimits", nil)])) == nil)
+        try expect(evaluate(try creditDetails(count: 1, entries: [("wrong", "available", "other", 10)])) == nil)
+        try expect(evaluate(try creditDetails(count: 1, entries: [("spent", "used", "codexRateLimits", 10)])) == nil)
+        try expect(evaluate(try creditDetails(count: 1, entries: [("same", "available", "codexRateLimits", 20)])) == nil)
+        try expect(evaluate(try creditDetails(count: 1, entries: [("after", "available", "codexRateLimits", 21)])) == nil)
+        try expect(evaluate(good, at: now.addingTimeInterval(10 * 3600)) == nil)
+        try expect(evaluate(try creditDetails(count: 2, entries: [("expired", "available", "codexRateLimits", -1), ("future", "available", "codexRateLimits", 10)])) == nil)
+        try expect(evaluate(good, UsageWindow(usedPercent: nil, windowDurationMins: 10080, resetsAt: window.resetsAt)) == nil)
+        try expect(evaluate(good, UsageWindow(usedPercent: 40, windowDurationMins: nil, resetsAt: window.resetsAt)) == nil)
+        try expect(evaluate(good, UsageWindow(usedPercent: 40, windowDurationMins: 10080, resetsAt: nil)) == nil)
+        try expect(evaluate(good, UsageWindow(usedPercent: 40, windowDurationMins: 10080, resetsAt: now.timeIntervalSince1970)) == nil)
+        let empty = try require(evaluate(good, UsageWindow(usedPercent: 100, windowDurationMins: 10080, resetsAt: window.resetsAt)))
+        try expect(empty.allowance == 0)
+    }
+
+    private func creditDetails(count: Int, entries: [(String, String, String, Double?)]) throws -> ResetCredits {
+        let values: [[String: Any]] = entries.map { id, status, type, hours in
+            var value: [String: Any] = ["id": id, "status": status, "resetType": type]
+            if let hours { value["expiresAt"] = now.addingTimeInterval(hours * 3600).timeIntervalSince1970 }
+            return value
+        }
+        let data = try JSONSerialization.data(withJSONObject: ["availableCount": count, "credits": values])
+        return try JSONDecoder().decode(ResetCredits.self, from: data)
+    }
     func testActivityPersistenceAndAccountIsolation() throws {
         var history = ProviderHistory()
         history.ingest(UsageSnapshot(response: response(used: 20), accountKey: "a", fetchedAt: now, activity: activity()))

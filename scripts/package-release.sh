@@ -10,7 +10,9 @@ app="$staging/Agent Pace.app"
 ditto --norsrc --noextattr "dist/Agent Pace.app" "$app"
 xattr -cr "$app"
 codesign --verify --deep --strict "$app"
-lipo "$app/Contents/MacOS/AgentPace" -verify_arch arm64 x86_64
+for architecture in arm64 x86_64; do
+    lipo "$app/Contents/MacOS/AgentPace" -verify_arch "$architecture"
+done
 ditto -c -k --keepParent --norsrc --noextattr "$app" "$staging/$archive"
 cp "$staging/$archive" "dist/$archive"
 (

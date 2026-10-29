@@ -67,6 +67,8 @@ struct Runner {
             ("星期偏好、趋势和稀疏历史", resets.testBusyWeekdayAndTrend),
             ("实际额度、忙闲模式与自然重置建议", resets.testAdviceUsesActualQuotaInsteadOfDailyOverspend),
             ("过期券与额度重置边界", resets.testExpiringCreditsAndResetBoundaries),
+            ("Reset 券到期前按小时滚动均摊", resets.testCreditPaceUsesEarliestExpiryAndCurrentRemaining),
+            ("Reset 券未知、过期与自然重置边界", resets.testCreditPaceRejectsUncertainOrInapplicableData),
             ("历史持久化、旧数据迁移与账户隔离", resets.testActivityPersistenceAndAccountIsolation),
             ("全局 reset、发券与来源核验等级", radar.testRecordedConfirmedAndBankedAreDistinct),
             ("Tibo 动态跨时区和午夜归属", radar.testTodayUsesLocalDayInsteadOfUpstreamUTCStatus),

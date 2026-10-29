@@ -58,7 +58,11 @@ final class PaceStore: ObservableObject {
                         $0.window.windowDurationMins == 300 &&
                         ClaudeSessionPace(window: $0.window, now: self.now).awaitingReset
                     } ?? false)
-                    let interval: TimeInterval = crossedDay || sessionResetPassed ? 60 : 300
+                    let creditExpired = provider == .codex && (record.snapshot?.response.rateLimitResetCredits?.availableCount ?? 0) > 0 && (record.snapshot?.response.rateLimitResetCredits?.credits?.contains {
+                        $0.status == "available" && $0.resetType == "codexRateLimits" &&
+                        $0.expiryDate.map { $0 <= self.now } == true
+                    } ?? false)
+                    let interval: TimeInterval = crossedDay || sessionResetPassed || creditExpired ? 60 : 300
                     if self.now.timeIntervalSince(self.lastAttempt[provider] ?? .distantPast) >= interval {
                         self.refresh(provider: provider)
                     }
@@ -84,6 +88,24 @@ final class PaceStore: ObservableObject {
         guard provider == .claude, let selected, selected.window.windowDurationMins == 300 else { return nil }
         return ClaudeSessionPace(window: selected.window, now: now)
     }
+    var creditPace: ResetCreditPace? {
+        guard provider == .codex, let selected, selected.bucketID == "codex", let snapshot,
+              now.timeIntervalSince(snapshot.fetchedAt) >= 0 else { return nil }
+        return ResetCreditPace.evaluate(window: selected.window,
+                                        credits: snapshot.response.rateLimitResetCredits,
+                                        stale: stale, now: now)
+    }
+    var creditPlanNeedsConfirmation: Bool {
+        guard provider == .codex, let snapshot, let selected, selected.bucketID == "codex",
+              let credits = snapshot.response.rateLimitResetCredits, credits.availableCount > 0 else { return false }
+        let expired = (credits.credits ?? []).contains {
+            $0.status == "available" && $0.resetType == "codexRateLimits" &&
+            $0.expiryDate.map { $0 <= now } == true
+        }
+        let unverified = stale || now.timeIntervalSince(snapshot.fetchedAt) < 0
+        return expired || (unverified && ResetCreditPace.evaluate(window: selected.window, credits: credits,
+                                                                    stale: false, now: now) != nil)
+    }
     var budget: DailyBudget? {
         guard let selected, let snapshot else { return nil }
         return history[provider].budgets["\(snapshot.accountKey)/\(selected.id)"]
@@ -100,6 +122,10 @@ final class PaceStore: ObservableObject {
     }
     var menuTitle: String {
         if let sessionPace { return sessionPace.menuTitle(stale: stale) }
+        if creditPlanNeedsConfirmation { return "Codex \(L("待同步"))" }
+        if let pace = creditPace {
+            return "Codex \(number(pace.allowance))\(pace.isFinalHour ? "% · <1h" : "%/h")"
+        }
         let title = selected?.bucketID == "claude_fable" ? "Fable" : provider.shortTitle
         guard let budget = validBudget else { return "\(title) \(isRefreshing ? L("同步中") : L("待同步"))" }
         return "\(title) \(stale ? "≈" : "")\(number(budget.leftToday))%"
@@ -108,6 +134,11 @@ final class PaceStore: ObservableObject {
         if let pace = sessionPace {
             let allowance = pace.allowance.map { "\(number($0))\(pace.unit)" } ?? L("待同步")
             return "Claude · \(pace.heading) \(allowance)\n\(pace.countdown)\(stale ? L(" · 上次记录") : "")"
+        }
+        if creditPlanNeedsConfirmation { return L("Reset 券状态待同步确认，请刷新额度。") }
+        if let pace = creditPace {
+            let value = "\(number(pace.allowance))\(pace.isFinalHour ? "%" : L("% / 小时"))"
+            return L("Codex · Reset 券到期前建议 \(value)\n距到期 \(pace.countdown)")
         }
         let over = validBudget?.overBudget ?? 0
         return over > 0 ? L("\(provider.title) · 今日已超额 \(number(over)) 个百分点")

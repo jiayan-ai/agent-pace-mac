@@ -30,6 +30,13 @@ struct PaceView: View {
                 if let pace = store.sessionPace {
                     ClaudeSessionView(pace: pace, stale: store.stale, accent: accent)
                         .id(store.language)
+                } else if let pace = store.creditPace {
+                    creditPacing(pace)
+                    metrics(selected)
+                } else if store.creditPlanNeedsConfirmation {
+                    Label(L("Reset 券状态待同步确认，请刷新额度。"), systemImage: "clock.arrow.circlepath")
+                        .font(.callout).foregroundStyle(.orange)
+                    metrics(selected)
                 } else {
                     hero
                     metrics(selected)
@@ -83,7 +90,7 @@ struct PaceView: View {
                 .background(accent.opacity(0.10), in: RoundedRectangle(cornerRadius: 12))
             VStack(alignment: .leading, spacing: 3) {
                 Text("Agent Pace").font(.system(size: 16, weight: .semibold))
-                Text(store.sessionPace == nil ? L("每日额度节奏") : L("每小时额度节奏")).font(.caption).foregroundStyle(.secondary)
+                Text(store.sessionPace == nil && store.creditPace == nil ? L("每日额度节奏") : L("每小时额度节奏")).font(.caption).foregroundStyle(.secondary)
             }
             Spacer(minLength: 4)
             Menu {
@@ -144,7 +151,7 @@ struct PaceView: View {
             }.frame(maxWidth: .infinity, alignment: .leading)
             Rectangle().fill(.quaternary).frame(width: 1, height: 66).padding(.trailing, 22)
             VStack(alignment: .leading, spacing: 7) {
-                Label(L("距离重置"), systemImage: "arrow.clockwise").font(.caption).foregroundStyle(.secondary)
+                Label(store.creditPace == nil ? L("距离重置") : L("距离自然重置"), systemImage: "arrow.clockwise").font(.caption).foregroundStyle(.secondary)
                 HStack(alignment: .firstTextBaseline, spacing: 4) {
                     Text(store.daysLeft.map { String(format: "%.2f", $0) } ?? "—")
                         .font(.system(size: 25, weight: .semibold, design: .rounded)).monospacedDigit()
@@ -154,6 +161,33 @@ struct PaceView: View {
                     .font(.caption).foregroundStyle(.secondary)
             }.frame(maxWidth: .infinity, alignment: .leading)
         }.padding(.horizontal, 3)
+    }
+
+    private func creditPacing(_ pace: ResetCreditPace) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Label(L("Reset 券到期倒计时"), systemImage: "timer")
+                    .font(.callout.weight(.semibold))
+                Spacer()
+                Text(pace.countdown).font(.callout.weight(.semibold)).monospacedDigit()
+            }
+            Text(L("有效期至 \(resetTime(pace.expiryDate))"))
+                .font(.caption).foregroundStyle(.secondary)
+            Divider()
+            Text(pace.isFinalHour ? L("到期前还可以用") : L("接下来每小时建议可用"))
+                .font(.callout.weight(.medium)).foregroundStyle(.secondary)
+            HStack(alignment: .firstTextBaseline, spacing: 5) {
+                Text(number(pace.allowance)).font(.system(size: 52, weight: .medium, design: .rounded)).monospacedDigit()
+                Text(pace.isFinalHour ? "%" : L("% / 小时")).font(.system(size: 18, weight: .medium))
+            }.foregroundStyle(accent).accessibilityElement(children: .combine)
+            Text(pace.isFinalHour ? L("不足 1 小时，显示到期前的实际剩余额度。") : L("按当前剩余额度和到期前的小时数动态均摊。"))
+                .font(.caption).foregroundStyle(.secondary)
+            Text(L("到期不会自动恢复额度；如需使用 Reset，请在 Codex 中手动操作。"))
+                .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(18)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(accent.opacity(0.07), in: RoundedRectangle(cornerRadius: 17))
     }
 
     private func todayProgress(_ budget: DailyBudget) -> some View {
@@ -191,7 +225,16 @@ struct PaceView: View {
     private var explanation: some View {
         DisclosureGroup(L("怎么算出来的"), isExpanded: $showExplanation) {
             VStack(alignment: .leading, spacing: 8) {
-                if let pace = store.sessionPace {
+                if let pace = store.creditPace {
+                    if !pace.isFinalHour {
+                        Text(L("\(number(pace.remaining))% ÷ \(String(format: "%.2f", pace.secondsRemaining / 3600)) 小时 = \(number(pace.allowance))% / 小时"))
+                            .font(.callout.weight(.medium)).monospacedDigit()
+                    }
+                    Text(L("仅在有明确到期时间的可用 Reset 券早于自然重置时，按最早到期券规划；不足 1 小时显示实际剩余额度。"))
+                    Text(L("这是用量建议，券到期不会自动重置，实际使用仍受其他额度窗口限制。"))
+                } else if store.creditPlanNeedsConfirmation {
+                    Text(L("Reset 券状态待同步确认，请刷新额度。"))
+                } else if let pace = store.sessionPace {
                     if let remaining = pace.remaining, let seconds = pace.secondsRemaining,
                        seconds >= 3600, let allowance = pace.allowance {
                         Text(L("\(number(remaining))% ÷ \(String(format: "%.2f", seconds / 3600)) 小时 = \(number(allowance))% / 小时"))
