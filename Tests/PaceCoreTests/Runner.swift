@@ -25,13 +25,24 @@ struct Runner {
         let client = ClientTests()
         let providers = ProviderTests()
         let resets = ResetTests()
+        let resetPlans = ResetPlanTests()
         let autoReset = AutoResetTests()
         let manualReset = ManualResetTests()
         let web = ClaudeWebTests()
         let radar = ResetRadarTests()
         let session = ClaudeSessionTests()
         let localization = LocalizationTests()
+        let tokens = TokenActivityTests()
+        let claudeTokens = ClaudeTokenTests()
         let cases: [(String, () throws -> Void)] = [
+            ("Claude Token 跨午夜和时区切换不冒充今日", claudeTokens.testSnapshotDateAndTimeZoneFreshness),
+            ("Claude Token 桌面记录、流式去重和缓存合计", claudeTokens.testDesktopDeduplicationStreamingAndCacheCounts),
+            ("Claude Token 本地日期、缺失与明确零值", claudeTokens.testLocalDatesMissingPeriodsAndZeroRecords),
+            ("Claude Token 非法、未知数据与安全加总", claudeTokens.testInvalidCountsUnknownDataAndSafeOverflow),
+            ("Claude Token 资源限制与不可读记录", claudeTokens.testResourceLimitsAndUnreadableOrRedirectedData),
+            ("Token 今日与累计保留，历史模式仍排除当天", tokens.testTodayAndSummarySurviveWithoutChangingHistoricalPatterns),
+            ("Token 缺失、非法、零值和30天边界", tokens.testMissingInvalidAndExplicitZeroAreDistinct),
+            ("Token 账户隔离与旧数据迁移", tokens.testAccountIsolationAndLegacySummaryMigration),
             ("语言跟随系统、显式覆盖和偏好持久化", localization.testLanguageResolutionAndPersistence),
             ("语言即时切换、错误和倒计时翻译且预算不变", localization.testLiveTranslationAndInterpolation),
             ("英文词条完整性与动态参数一致性", localization.testCatalogArgumentsAndEnglishCoverage),
@@ -79,6 +90,12 @@ struct Runner {
             ("Reset 券到期前按小时滚动均摊", resets.testCreditPaceUsesEarliestExpiryAndCurrentRemaining),
             ("Reset 券未知、过期与自然重置边界", resets.testCreditPaceRejectsUncertainOrInapplicableData),
             ("Reset 券三天门槛及同步状态", resets.testCreditPaceThreeDayHorizonAndConfirmation),
+            ("Reset 计划含首尾日期、实际余额及同期限批次", resetPlans.testInclusiveDatesActualRemainingAndBatch),
+            ("Reset 计划不虚构未知、重复与冲突券容量", resetPlans.testUnverifiedDetailsNeverCreateCapacity),
+            ("Reset 计划冻结预算、兑换及逐点扣减", resetPlans.testFrozenBudgetRedemptionAndObservedSpending),
+            ("Reset 计划跨日、新券、过期与撤销", resetPlans.testDayChangesNewCreditsExpiryAndRevocation),
+            ("Reset 计划持久化、账户隔离与缺失快照", resetPlans.testPersistenceAccountIsolationAndMissingSnapshots),
+            ("Reset 计划旧记录、夏令时与小时模式兼容", resetPlans.testStaleDSTTimezoneAndHourlyPrecedence),
             ("历史持久化、旧数据迁移与账户隔离", resets.testActivityPersistenceAndAccountIsolation),
             ("全局 reset、发券与来源核验等级", radar.testRecordedConfirmedAndBankedAreDistinct),
             ("Tibo 动态跨时区和午夜归属", radar.testTodayUsesLocalDayInsteadOfUpstreamUTCStatus),

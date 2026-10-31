@@ -41,7 +41,11 @@ public struct DailyActivity: Codable, Equatable, Identifiable {
 
 public struct AccountActivity: Codable {
     public let dailyUsageBuckets: [DailyActivity]?
-    public init(dailyUsageBuckets: [DailyActivity]?) { self.dailyUsageBuckets = dailyUsageBuckets }
+    public let summary: AccountTokenSummary?
+    public init(dailyUsageBuckets: [DailyActivity]?, summary: AccountTokenSummary? = nil) {
+        self.dailyUsageBuckets = dailyUsageBuckets
+        self.summary = summary
+    }
 
     // API date labels are retained verbatim. UTC provides a stable date axis,
     // independent of the viewer's time zone. Missing days remain unknown.
@@ -75,7 +79,7 @@ public struct AccountActivity: Codable {
             // Repeated buckets represent the same day, never add them together.
             if item.tokens >= (days[item.startDate]?.tokens ?? -1) { days[item.startDate] = item }
         }
-        return AccountActivity(dailyUsageBuckets: days.values.sorted { $0.startDate < $1.startDate })
+        return AccountActivity(dailyUsageBuckets: days.values.sorted { $0.startDate < $1.startDate }, summary: summary)
     }
 }
 

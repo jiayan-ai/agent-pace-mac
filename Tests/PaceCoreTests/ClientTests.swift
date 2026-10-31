@@ -5,7 +5,7 @@ struct ClientTests {
     func testReadOnlyHandshakeAndResponseDecoding() throws {
         let script = #"""
         #!/usr/bin/python3
-        import sys,json
+        import sys,json,datetime
         def receive(method):
             v=json.loads(sys.stdin.readline())
             assert v['method']==method
@@ -20,7 +20,7 @@ struct ClientTests {
         receive('account/rateLimits/read')
         send({'id':3,'result':{'rateLimits':{'limitId':'codex','primary':{'usedPercent':25,'windowDurationMins':10080,'resetsAt':2000000000}},'rateLimitResetCredits':{'availableCount':2,'credits':None}}})
         receive('account/usage/read')
-        send({'id':4,'result':{'dailyUsageBuckets':[]}})
+        send({'id':4,'result':{'summary':{'lifetimeTokens':123456},'dailyUsageBuckets':[{'startDate':datetime.datetime.now(datetime.timezone.utc).strftime('%Y-%m-%d'),'tokens':321}]}})
         sys.stdin.read()
         """#
         let path = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
@@ -32,7 +32,8 @@ struct ClientTests {
         try expect((snapshot.accountKey.count) == (64))
         try expect((snapshot.accountKey) != ("fixture-account"))
         try expect(snapshot.response.rateLimitResetCredits?.availableCount == 2)
-        try expect(snapshot.activity?.dailyUsageBuckets?.isEmpty == true)
+        try expect(snapshot.activity?.dailyUsageBuckets?.first?.tokens == 321)
+        try expect(snapshot.activity?.summary?.lifetimeTokens == 123456)
     }
 
     func testUnavailableHistoryDoesNotBreakQuotas() throws {

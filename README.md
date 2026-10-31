@@ -81,7 +81,7 @@ If you use 17 percentage points against a 10% allowance, the balance is **−7.0
 
 When a usable Codex reset credit expires within 72 hours and before the selected main Codex quota window's natural reset, Agent Pace uses the **credit expiry as a planning deadline**. The main panel and menu bar show a rolling hourly suggestion instead of the daily balance, even if the earlier daily budget was exceeded. For example, 50% of the window remaining with 10 hours until the credit expires gives **5% / hour**. The countdown and suggestion change as time passes and usage is synced. In the final partial hour, the panel shows the actual remaining quota before expiry.
 
-This is a plan for the existing quota. Credit expiry itself does **not** reset the account. The natural reset remains separate. When no credit meets these conditions, the normal daily budget remains in view. The app uses the earliest known, available credit, requires confirmed account data, and never guesses an unknown expiry. If a credit reaches its recorded expiry while the server still reports it as available, refresh to confirm the current status.
+This is a plan for the existing quota. Credit expiry itself does **not** reset the account. The natural reset remains separate. Outside this hourly view, a verified reset-inclusive daily plan is used when eligible; otherwise the normal daily budget remains in view. The app uses the earliest known, available credit, requires confirmed account data, and never guesses an unknown expiry. If a credit reaches its recorded expiry while the server still reports it as available, refresh to confirm the current status.
 
 ### Claude's five-hour window
 
@@ -103,6 +103,23 @@ These are percentage points of a quota, **not minutes of work**. Consumption dep
 
 Missing data is never treated as zero usage. Expired windows wait for fresh data. Offline or unconfirmed records are labeled as last known; the menu bar uses `≈` for stale estimates. A one-decimal display does not imply the service measures usage to that precision.
 
+### Daily plan including reset credits
+
+A verified reset credit can contribute **100 percentage points of potential capacity** to a daily plan. If November 1 starts with 100% remaining and one credit expires on November 6, the six local calendar dates give `(100% + 100%) / 6 = 33.3% per day`. The daily allowance is frozen at the first observation and actual observed consumption is deducted. A same-day redemption keeps that spending record and removes the redeemed credit from the potential pool.
+
+Only the earliest known expiry batch is included. Unknown, conflicting or expired credits never add capacity, and different expiry batches are not combined. The daily plan works whether the credit expires before or after the natural reset. Future natural-reset capacity is never added in advance; when a reset is actually reported, the plan uses the returned balance and preserves that day's observed spending. When expiry is within 72 hours and earlier than the natural reset, the existing hourly view stays primary; the reset-inclusive plan remains supporting information.
+
+The plan is **not an available balance**. Existing quota must be used and a reset redeemed before its potential allowance becomes available; redeeming early does not preserve unused quota. Actual remaining quota is displayed separately. Automatic redemption still only attempts in the final five minutes and does not redeem early to fulfill the daily plan. Only observed consumption is tracked; usage missed between snapshots cannot be reconstructed.
+
+### Actual token records
+
+The Token usage card is separate from quota percentages:
+
+- **Codex:** service-reported account token activity from `account/usage/read`, including today (UTC), the sum of returned days in the last 30 days, and lifetime tokens when supplied. Missing dates and totals stay unknown, with the number of covered days shown. Historical pattern analysis still excludes today.
+- **Claude Code:** locally retained assistant usage records in `~/.claude/projects` (Windows: `%USERPROFILE%\.claude\projects`), including desktop Code records when present there. Today and the last 30 local calendar dates include input, output, cache creation and cache reads; the breakdown is expandable. Duplicate request/message records are counted once, and explicitly identified Cowork records are excluded.
+
+Claude totals cover only retained local records and may include multiple accounts on this device; they are not attributed to the currently signed-in web organization or presented as cross-device account totals. Missing records are not zero. Partial or unreadable data is labeled. Scanning runs in the background with resource limits; it does not read credentials or save/upload conversation text. No percentage-to-token conversion or estimated billing is used. See the [Claude local directory documentation](https://code.claude.com/docs/en/claude-directory) and [usage history scope](https://code.claude.com/docs/en/costs).
+
 ### Use a reset credit in the app
 
 Select an available credit in the Codex reset section and confirm to use that specific credit. You do not need to enable automatic redemption or wait until the credit is near expiry. Agent Pace rechecks the current account and credit before sending the request; the server decides whether it can be used. A successful reset restores eligible limits and refreshes the displayed quota and credit count. Unused quota is not added to the restored allowance, and the next reset times can change.
@@ -115,7 +132,7 @@ Automatic redemption is **off by default**. If enabled, Agent Pace attempts to r
 
 ## Reset advisor
 
-The Codex panel reads available reset counts, reported expiry details and 30 days of daily token activity through the local app server. Expand **30-day patterns & reset details** to see the chart and recommendations.
+The Codex panel reads available reset counts, reported expiry details and 30 days of daily token activity through the local app server. Expand **Usage patterns · last 30 days** to see the chart and recommendations.
 
 - Only complete dates in the preceding 30 days are considered, using the API's UTC date labels. Missing days are not zero; duplicate buckets are not added together.
 - Pattern advice needs at least 14 valid days. Weekday patterns need at least three samples for that weekday and are smoothed toward the overall mean. Recent trends require sufficient data in both comparison periods.

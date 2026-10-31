@@ -18,6 +18,10 @@ final class PaceStore: ObservableObject {
     @Published var now = Date()
     @Published private var persistenceFailed = false
     @Published private(set) var language = Localization.language
+    @Published private(set) var claudeTokens: ClaudeTokenSnapshot?
+    @Published private(set) var claudeTokensRefreshing = false
+    private var claudeTokensAttempt: Date?
+    private var claudeTokensTimeZone: String?
     var persistenceError: String? { persistenceFailed ? L("今日记录暂时无法保存；重新打开后会重新计算预算。") : nil }
     @Published private(set) var claudeEnabled = UserDefaults.standard.bool(forKey: "claudeWebConnectionEnabled")
     @Published private(set) var claudeNeedsLogin = false
@@ -74,6 +78,10 @@ final class PaceStore: ObservableObject {
                 }
                 self.checkAutoResetStatus()
                 self.tryAutoReset()
+                if self.now.timeIntervalSince(self.claudeTokensAttempt ?? .distantPast) >= 300 ||
+                    (self.claudeTokens != nil && self.claudeTokensDayChanged) {
+                    self.refreshClaudeTokens()
+                }
                 if self.now.timeIntervalSince(self.resetRadarAttempt ?? .distantPast) >= ResetRadarClient.refreshInterval {
                     self.refreshResetRadar()
                 }
@@ -82,6 +90,7 @@ final class PaceStore: ObservableObject {
         wakeObserver = NSWorkspace.shared.notificationCenter.addObserver(forName: NSWorkspace.didWakeNotification, object: nil, queue: .main) { [weak self] _ in
             Task { @MainActor in self?.refreshAll() }
         }
+        refreshClaudeTokens()
     }
 
     var provider: UsageProvider { history.selectedProvider }
@@ -103,8 +112,12 @@ final class PaceStore: ObservableObject {
                                         stale: stale, now: now)
     }
     var creditPlanNeedsConfirmation: Bool {
-        guard provider == .codex, let snapshot, let selected, selected.bucketID == "codex",
-              let credits = snapshot.response.rateLimitResetCredits, credits.availableCount > 0 else { return false }
+        guard provider == .codex, let snapshot, let selected, selected.bucketID == "codex" else { return false }
+        if let plan = history[provider].resetPlanBudgets?["\(snapshot.accountKey)/\(selected.id)"],
+           Calendar.current.startOfDay(for: now) == plan.dayStart,
+           plan.timeZoneID == Calendar.current.timeZone.identifier,
+           !plan.isCurrent(now: now, snapshotAt: snapshot.fetchedAt, stale: stale) { return true }
+        guard let credits = snapshot.response.rateLimitResetCredits, credits.availableCount > 0 else { return false }
         return ResetCreditPace.needsConfirmation(window: selected.window, credits: credits, stale: stale,
                                                   snapshotInFuture: now.timeIntervalSince(snapshot.fetchedAt) < 0,
                                                   now: now)
@@ -112,6 +125,12 @@ final class PaceStore: ObservableObject {
     var budget: DailyBudget? {
         guard let selected, let snapshot else { return nil }
         return history[provider].budgets["\(snapshot.accountKey)/\(selected.id)"]
+    }
+    var resetPlanBudget: ResetPlanBudget? {
+        guard provider == .codex, let selected, selected.bucketID == "codex", let snapshot,
+              let plan = history[provider].resetPlanBudgets?["\(snapshot.accountKey)/\(selected.id)"],
+              plan.isCurrent(now: now, snapshotAt: snapshot.fetchedAt, stale: stale) else { return nil }
+        return plan.adjustedForExpiry(at: now)
     }
     var stale: Bool {
         guard verified.contains(provider), let snapshot else { return true }
@@ -129,6 +148,7 @@ final class PaceStore: ObservableObject {
         if let pace = creditPace {
             return "Codex \(number(pace.allowance))\(pace.isFinalHour ? "% · <1h" : "%/h")"
         }
+        if let plan = resetPlanBudget { return "Codex \(number(plan.leftToday))% · \(L("计划"))" }
         let title = selected?.bucketID == "claude_fable" ? "Fable" : provider.shortTitle
         guard let budget = validBudget else { return "\(title) \(isRefreshing ? L("同步中") : L("待同步"))" }
         return "\(title) \(stale ? "≈" : "")\(number(budget.leftToday))%"
@@ -143,6 +163,9 @@ final class PaceStore: ObservableObject {
             let value = "\(number(pace.allowance))\(pace.isFinalHour ? "%" : L("% / 小时"))"
             return L("Codex · Reset 券到期前建议 \(value)\n距到期 \(pace.countdown)")
         }
+        if let plan = resetPlanBudget {
+            return L("Codex · 今日计划剩余 \(number(plan.leftToday))%（含 Reset 计划）；当前实际余额 \(number(plan.actualRemaining))%。")
+        }
         let over = validBudget?.overBudget ?? 0
         return over > 0 ? L("\(provider.title) · 今日已超额 \(number(over)) 个百分点")
             : L("\(provider.title) · 今天还可用的额度")
@@ -150,6 +173,41 @@ final class PaceStore: ObservableObject {
     var daysLeft: Double? { selected?.window.resetDate.map { max(0, $0.timeIntervalSince(now) / 86400) } }
     var usagePattern: UsagePattern { UsagePattern(activity: history[provider].activity, now: now) }
     var activityUpdatedAt: Date? { history[provider].activityFetchedAt }
+    var codexTokens: CodexTokenActivity {
+        CodexTokenActivity(activity: history[.codex].activity, now: now)
+    }
+    var codexTokensUpdatedAt: Date? { history[.codex].activityFetchedAt }
+    var codexTokensStale: Bool {
+        let record = history[.codex]
+        guard verified.contains(.codex), let date = record.activityFetchedAt else { return true }
+        return errors[.codex] != nil || date != record.snapshot?.fetchedAt ||
+            now.timeIntervalSince(date) < 0 || now.timeIntervalSince(date) > 660
+    }
+    var claudeTokensDayChanged: Bool {
+        guard let snapshot = claudeTokens else { return false }
+        return !snapshot.isCurrentDay(now: now, calendar: .current, scannedTimeZoneID: claudeTokensTimeZone)
+    }
+    var claudeTokensStale: Bool {
+        guard let date = claudeTokens?.fetchedAt else { return true }
+        return claudeTokensDayChanged || now.timeIntervalSince(date) < 0 || now.timeIntervalSince(date) > 660
+    }
+
+    func refreshClaudeTokens() {
+        guard !claudeTokensRefreshing else { return }
+        claudeTokensRefreshing = true
+        claudeTokensAttempt = Date()
+        let scanTime = Date()
+        let scanCalendar = Calendar.current
+        DispatchQueue.global(qos: .utility).async { [weak self] in
+            let result = ClaudeLocalTokens.read(now: scanTime, calendar: scanCalendar)
+            Task { @MainActor in
+                guard let self else { return }
+                self.claudeTokens = result
+                self.claudeTokensTimeZone = scanCalendar.timeZone.identifier
+                self.claudeTokensRefreshing = false
+            }
+        }
+    }
     var resetAdvice: ResetAdvice {
         let historyAge = activityUpdatedAt.map { now.timeIntervalSince($0) } ?? .infinity
         return ResetAdvice.evaluate(response: snapshot?.response, pattern: usagePattern,
@@ -297,10 +355,12 @@ final class PaceStore: ObservableObject {
         if stale { refresh() }
     }
     func refreshAll() {
+        refreshClaudeTokens()
         for provider in UsageProvider.allCases { refresh(provider: provider) }
         refreshResetRadar()
     }
     func refresh() {
+        if provider == .claude { refreshClaudeTokens() }
         refresh(provider: provider)
         if provider == .codex { refreshResetRadar() }
     }

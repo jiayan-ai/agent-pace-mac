@@ -10,6 +10,8 @@ public enum UsageProvider: String, Codable, CaseIterable, Identifiable, Sendable
 public struct ProviderHistory: Codable {
     public var snapshot: UsageSnapshot?
     public var budgets: [String: DailyBudget]
+    // Optional for compatibility with existing saved histories.
+    public var resetPlanBudgets: [String: ResetPlanBudget]?
     public var selectedID: String
     public var activity: AccountActivity?
     public var activityFetchedAt: Date?
@@ -23,22 +25,36 @@ public struct ProviderHistory: Codable {
     public mutating func ingest(_ current: UsageSnapshot, calendar: Calendar = .current) {
         if snapshot?.accountKey != current.accountKey {
             budgets = [:]
+            resetPlanBudgets = nil
             activity = nil
             activityFetchedAt = nil
         }
-        if let currentActivity = current.activity, currentActivity.dailyUsageBuckets != nil {
-            activity = currentActivity.recent(now: current.fetchedAt)
+        if let currentActivity = current.activity,
+           currentActivity.dailyUsageBuckets != nil || currentActivity.summary != nil {
+            activity = currentActivity.sanitized(now: current.fetchedAt)
             activityFetchedAt = current.fetchedAt
         }
         snapshot = current
         var next: [String: DailyBudget] = [:]
+        // Keep today's observation ledger through a temporarily missing window.
+        // The UI requires its observedAt to match the fresh snapshot before use.
+        var nextPlans = (resetPlanBudgets ?? [:]).filter {
+            $0.value.dayStart == calendar.startOfDay(for: current.fetchedAt) &&
+                $0.value.timeZoneID == calendar.timeZone.identifier
+        }
         for item in current.response.windows {
             let key = "\(current.accountKey)/\(item.id)"
             if let budget = DailyBudget.reconcile(previous: budgets[key], window: item.window, now: current.fetchedAt, calendar: calendar) {
                 next[key] = budget
             }
+            if item.bucketID == "codex", let plan = ResetPlanBudget.reconcile(
+                previous: resetPlanBudgets?[key], window: item.window,
+                credits: current.response.rateLimitResetCredits, now: current.fetchedAt, calendar: calendar) {
+                nextPlans[key] = plan
+            }
         }
         budgets = next
+        resetPlanBudgets = nextPlans.isEmpty ? nil : nextPlans
         if !current.response.windows.contains(where: { $0.id == selectedID }) {
             selectedID = current.response.windows.first?.id ?? ""
         }
