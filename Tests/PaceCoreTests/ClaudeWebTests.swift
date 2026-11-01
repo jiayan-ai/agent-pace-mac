@@ -128,4 +128,185 @@ struct ClaudeWebTests {
             try expect(values["seven_day"] != nil)
         }
     }
+
+    private var quotaDate: Date { ISO8601DateFormatter().date(from: "2026-11-01T12:00:00Z")! }
+
+    private func bridgeUsage(_ usage: String) throws -> [String: Any] {
+        let orgs = #"{"status":200,"data":[{"uuid":"\#(org)","name":"Personal"}]}"#
+        return try runScript(responses: "[\(orgs),{\"status\":200,\"data\":\(usage)}]")
+    }
+
+    private func bridgeSnapshot(_ result: [String: Any], now: Date? = nil) throws -> UsageSnapshot {
+        let data = try JSONSerialization.data(withJSONObject: result)
+        return try JSONDecoder().decode(ClaudeWebReply.self, from: data).snapshot(now: now ?? quotaDate)
+    }
+
+    func testInactiveModernLimitsOverrideLegacyAndClearSelections() throws {
+        let before = try bridgeSnapshot(bridgeUsage(#"""
+        {
+            "five_hour":{"utilization":2,"resets_at":"2026-11-01T16:00:00Z"},
+            "seven_day":{"utilization":3,"resets_at":"2026-11-07T12:00:00Z"},
+            "limits":[{"kind":"weekly_scoped","percent":2,"is_active":true,
+                "resets_at":"2026-11-07T12:00:00Z","scope":{"model":{"display_name":"Fable"}}}]
+        }
+        """#))
+        var history = ProviderHistory()
+        history.ingest(before)
+        history.selectedID = "claude/secondary"
+        try expect(history.budgets[before.accountKey + "/claude/secondary"] != nil)
+        try expect(history.budgets[before.accountKey + "/claude_fable/primary"] != nil)
+
+        // Mirrors the reported response: legacy session usage remains populated
+        // even though the corresponding modern limit is explicitly inactive.
+        let result = try bridgeUsage(#"""
+        {
+            "five_hour":{"utilization":2,"resets_at":"2026-11-01T16:00:00Z"},
+            "seven_day":{"utilization":99,"resets_at":"2026-11-07T12:00:00Z"},
+            "limits":[
+                {"kind":"session","percent":2,"is_active":false,"resets_at":"2026-11-01T16:00:00Z"},
+                {"kind":"weekly_all","percent":3,"is_active":true,"resets_at":"2026-11-07T12:00:00Z"},
+                {"kind":"weekly_scoped","percent":2,"is_active":false,"resets_at":"2026-11-07T12:00:00Z",
+                    "scope":{"model":{"display_name":"Fable"}}}
+            ]
+        }
+        """#)
+        let values = try require(result["usage"] as? [String: Any])
+        try expect(values["five_hour"] == nil && values["seven_day_fable"] == nil)
+        try expect((values["seven_day"] as? [String: Any])?["utilization"] as? Double == 3)
+        try expect(result["noActiveLimits"] as? Bool != true)
+        let current = try bridgeSnapshot(result, now: quotaDate.addingTimeInterval(60))
+        try expect(current.response.windows.map(\.id) == ["claude/primary"])
+        history.ingest(current)
+        try expect(history.selectedID == "claude/primary")
+        try expect(Set(history.budgets.keys) == [before.accountKey + "/claude/primary"])
+        try expect(history.snapshot?.response.windows.first?.window.usedPercent == 3)
+    }
+
+    func testModernOnlyActiveZeroAndExactModelMatching() throws {
+        let result = try bridgeUsage(#"""
+        {"limits":[
+            {"kind":"session","percent":0,"is_active":true,"resets_at":"2026-11-01T16:00:00Z"},
+            {"kind":"weekly_all","percent":7,"resets_at":"2026-11-07T12:00:00Z"},
+            {"kind":"weekly_scoped","percent":11,"is_active":true,"resets_at":"2026-11-07T13:00:00Z",
+                "scope":{"model":{"display_name":"Sonnet"}}},
+            {"kind":"weekly_scoped","percent":12,"resets_at":"2026-11-07T14:00:00Z",
+                "scope":{"model":{"display_name":"Opus"}}},
+            {"kind":"weekly_scoped","percent":0,"is_active":true,"resets_at":null,
+                "scope":{"model":{"display_name":"Fable"}}},
+            {"kind":"weekly_scoped","percent":88,"is_active":true,"scope":{"model":{"display_name":"fable"}}},
+            {"kind":"weekly_scoped","percent":99,"is_active":true,"scope":{"model":{"display_name":"Other"}}}
+        ]}
+        """#)
+        let snapshot = try bridgeSnapshot(result)
+        try expect(snapshot.response.windows.count == 5)
+        let byID = Dictionary(uniqueKeysWithValues: snapshot.response.windows.map { ($0.id, $0.window) })
+        try expect(byID["claude/secondary"]?.usedPercent == 0 && byID["claude/secondary"]?.remaining == 100)
+        try expect(byID["claude/secondary"]?.windowDurationMins == 300)
+        try expect(byID["claude/primary"]?.usedPercent == 7)
+        try expect(byID["claude_sonnet/primary"]?.usedPercent == 11)
+        try expect(byID["claude_opus/primary"]?.usedPercent == 12)
+        try expect(byID["claude_fable/primary"]?.usedPercent == 0 && byID["claude_fable/primary"]?.remaining == 100)
+        try expect(byID["claude_fable/primary"]?.resetsAt == nil)
+        try expect(byID["claude_opus/primary"]?.resetDate == ISO8601DateFormatter().date(from: "2026-11-07T14:00:00Z"))
+        try expect(result["noActiveLimits"] as? Bool != true)
+    }
+
+    func testModernInvalidOrAmbiguousRowsNeverFallBack() throws {
+        let targets = [
+            ("five_hour", #""kind":"session""#),
+            ("seven_day", #""kind":"weekly_all""#),
+            ("seven_day_sonnet", #""kind":"weekly_scoped","scope":{"model":{"display_name":"Sonnet"}}"#),
+            ("seven_day_opus", #""kind":"weekly_scoped","scope":{"model":{"display_name":"Opus"}}"#)
+        ]
+        for (key, identity) in targets {
+            for extra in [#""is_active":false,"percent":2"#, #""is_active":"false","percent":2"#,
+                          #""is_active":0,"percent":2"#, #""is_active":null,"percent":2"#,
+                          #""is_active":true,"percent":"2""#, #""is_active":true"#,
+                          #""is_active":true,"percent":-1"#] {
+                let result = try bridgeUsage("{\"\(key)\":{\"utilization\":91},\"limits\":[{\(identity),\(extra)}]}")
+                let values = try require(result["usage"] as? [String: Any])
+                try expect(values[key] == nil)
+                if !extra.contains(#""is_active":false"#) {
+                    try expect(result["noActiveLimits"] as? Bool != true)
+                    try expectThrows { try bridgeSnapshot(result) }
+                }
+            }
+            let row = "{\(identity),\"percent\":2,\"is_active\":true}"
+            let result = try bridgeUsage("{\"\(key)\":{\"utilization\":91},\"limits\":[\(row),\(row)]}")
+            try expect((result["usage"] as? [String: Any])?[key] == nil)
+            try expect(result["noActiveLimits"] as? Bool != true)
+            try expectThrows { try bridgeSnapshot(result) }
+        }
+        // Fable has no legacy alias; its matching row still obeys the same flag contract.
+        for flag in ["false", "\"false\"", "1", "null"] {
+            let result = try bridgeUsage("{\"seven_day\":{\"utilization\":3},\"limits\":[{\"kind\":\"weekly_scoped\",\"percent\":2,\"is_active\":\(flag),\"scope\":{\"model\":{\"display_name\":\"Fable\"}}}]}")
+            try expect((result["usage"] as? [String: Any])?["seven_day_fable"] == nil)
+            try expect(try bridgeSnapshot(result).response.windows.map(\.id) == ["claude/primary"])
+        }
+    }
+
+    func testLegacyFallbackRequiresNoModernMatchAndAnActiveFlag() throws {
+        for limits in ["null", "[]", #"[{"kind":"unknown","is_active":false}]"#,
+                       #"[{"kind":"weekly_scoped","percent":9,"scope":{"model":{"display_name":"SONNET"}}}]"#] {
+            let result = try bridgeUsage("""
+            {"five_hour":{"utilization":0,"resets_at":null},
+             "seven_day":{"utilization":3,"is_active":true},
+             "seven_day_sonnet":{"utilization":4},"seven_day_opus":{"utilization":5,"is_active":true},
+             "limits":\(limits)}
+            """)
+            let values = try require(result["usage"] as? [String: Any])
+            try expect(values.count == 4)
+            try expect((values["five_hour"] as? [String: Any])?["utilization"] as? Double == 0)
+            try expect((values["seven_day_sonnet"] as? [String: Any])?["utilization"] as? Double == 4)
+            try expect(try bridgeSnapshot(result).response.windows.count == 4)
+        }
+        for key in ["five_hour", "seven_day_sonnet", "seven_day_opus"] {
+            for flag in ["false", "\"false\"", "0", "null"] {
+                let result = try bridgeUsage("{\"seven_day\":{\"utilization\":3},\"\(key)\":{\"utilization\":2,\"is_active\":\(flag)}}")
+                try expect((result["usage"] as? [String: Any])?[key] == nil)
+                try expect(try bridgeSnapshot(result).response.windows.map(\.id) == ["claude/primary"])
+            }
+        }
+        let inactiveWeekly = try bridgeUsage(#"{"seven_day":{"utilization":2,"is_active":false},"five_hour":{"utilization":0}}"#)
+        try expect(try bridgeSnapshot(inactiveWeekly).response.windows.map(\.id) == ["claude/secondary"])
+    }
+
+    func testExplicitAllInactiveClearsHistoryButUnknownEmptyIsRejected() throws {
+        let before = try bridgeSnapshot(bridgeUsage(#"""
+        {
+            "five_hour":{"utilization":2,"resets_at":"2026-11-01T16:00:00Z"},
+            "seven_day":{"utilization":3,"resets_at":"2026-11-07T12:00:00Z"}
+        }
+        """#))
+        var history = ProviderHistory()
+        history.ingest(before)
+        history.selectedID = "claude/secondary"
+        try expect(history.budgets.count == 2)
+        let result = try bridgeUsage(#"""
+        {
+            "five_hour":{"utilization":2},"seven_day":{"utilization":3},
+            "limits":[{"kind":"session","percent":2,"is_active":false},
+                {"kind":"weekly_all","percent":3,"is_active":false},
+                {"kind":"weekly_scoped","percent":2,"is_active":false,"scope":{"model":{"display_name":"Fable"}}}]
+        }
+        """#)
+        try expect(result["noActiveLimits"] as? Bool == true)
+        let inactive = try bridgeSnapshot(result, now: quotaDate.addingTimeInterval(60))
+        try expect(inactive.accountKey == before.accountKey && inactive.response.windows.isEmpty)
+        history.ingest(inactive)
+        try expect(history.snapshot?.response.windows.isEmpty == true)
+        try expect(history.budgets.isEmpty && history.selectedID.isEmpty)
+        let restored = try JSONDecoder().decode(ProviderHistory.self, from: JSONEncoder().encode(history))
+        try expect(restored.snapshot?.response.windows.isEmpty == true && restored.budgets.isEmpty)
+
+        for payload in ["{}", #"{"limits":[]}"#, #"{"limits":null}"#,
+                        #"{"limits":[{"kind":"unknown","is_active":false}]}"#,
+                        #"{"limits":[{"kind":"session","percent":2,"is_active":"false"}]}"#,
+                        #"{"limits":[{"kind":"session","is_active":true}]}"#,
+                        #"{"limits":[{"kind":"session","is_active":false},{"kind":"unknown","is_active":true}]}"#] {
+            let unknown = try bridgeUsage(payload)
+            try expect(unknown["noActiveLimits"] as? Bool != true)
+            try expectThrows { try bridgeSnapshot(unknown) }
+        }
+    }
 }

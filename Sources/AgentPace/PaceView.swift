@@ -64,6 +64,9 @@ struct PaceView: View {
 
                 if let error = store.persistenceError { errorMessage(error) }
                 explanation
+            } else if store.noActiveClaudeLimits {
+                Label(L("当前没有启用的额度窗口"), systemImage: "checkmark.circle")
+                    .font(.callout).foregroundStyle(.secondary).padding(.vertical, 32)
             } else {
                 VStack(spacing: 14) {
                     Image(systemName: store.isRefreshing ? "arrow.triangle.2.circlepath.circle" : "gauge.with.dots.needle.0percent")
@@ -133,7 +136,7 @@ struct PaceView: View {
             Text(store.selected?.bucketID == "claude_fable" ? L("占 Fable 周额度的百分比") : L("占这个周期总额度的百分比"))
                 .font(.caption).foregroundStyle(.secondary)
             if store.selected?.bucketID == "claude_fable" {
-                Text(L("Fable 使用也计入总周额度，仍受总周额度和 5 小时额度限制。"))
+                Text(L("Fable 使用也计入总周额度，其他限制以账户当前生效的额度窗口为准。"))
                     .font(.caption).foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }

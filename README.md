@@ -53,7 +53,7 @@ Click **Connect Claude**, sign in at `claude.ai` inside Agent Pace's connection 
 
 Users upgrading from the old desktop-credential integration must connect once using this flow. An expired session may require signing in again. For accounts with multiple organizations, select the organization explicitly.
 
-Claude's subscription quota is shared across its apps. This view cannot isolate usage generated only by Desktop Code. Fable usage also counts toward the overall weekly quota and remains subject to the five-hour limit; it is not an extra independent weekly allowance. See [Claude's Fable plan documentation](https://support.claude.com/en/articles/15424964-claude-fable-models-on-your-plan).
+Claude's subscription quota is shared across its apps. This view cannot isolate usage generated only by Desktop Code. Fable usage also counts toward the overall weekly quota; it is not an extra independent weekly allowance. Other restrictions depend on the active windows returned for the account. Agent Pace honors the current usage response’s `is_active` flags: a disabled session or model window is hidden even when legacy fields still return a percentage. Supported current windows take precedence over legacy fields; accounts returning only the older format remain supported. See [Claude's Fable plan documentation](https://support.claude.com/en/articles/15424964-claude-fable-models-on-your-plan).
 
 ## How pacing works
 

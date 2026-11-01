@@ -132,6 +132,9 @@ final class PaceStore: ObservableObject {
               plan.isCurrent(now: now, snapshotAt: snapshot.fetchedAt, stale: stale) else { return nil }
         return plan.adjustedForExpiry(at: now)
     }
+    var noActiveClaudeLimits: Bool {
+        provider == .claude && snapshot != nil && windows.isEmpty && !stale
+    }
     var stale: Bool {
         guard verified.contains(provider), let snapshot else { return true }
         return error != nil || now.timeIntervalSince(snapshot.fetchedAt) > 660
@@ -150,6 +153,7 @@ final class PaceStore: ObservableObject {
         }
         if let plan = resetPlanBudget { return "Codex \(number(plan.leftToday))% · \(L("计划"))" }
         let title = selected?.bucketID == "claude_fable" ? "Fable" : provider.shortTitle
+        if noActiveClaudeLimits { return "Claude · \(L("无生效额度窗口"))" }
         guard let budget = validBudget else { return "\(title) \(isRefreshing ? L("同步中") : L("待同步"))" }
         return "\(title) \(stale ? "≈" : "")\(number(budget.leftToday))%"
     }
