@@ -4,9 +4,12 @@ import PaceCore
 
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
-    let store = PaceStore()
+    let store = PaceStore(diagnostics: CommandLine.arguments.contains("--check-menu"))
     private var statusItem: NSStatusItem!
     private let popover = NSPopover()
+    private var menuHost: NSHostingController<AnyView>?
+    private var preparedMenuSize: NSSize?
+    private var menuGeneration = 0
     private var screenObserver: NSObjectProtocol?
     private var window: NSWindow?
     private var renderedStatusTitle: String?
@@ -28,6 +31,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
             Task { @MainActor in
                 self?.hideMenu()
                 self?.updateStatusItem(force: true)
+                self?.prepareMenuForCurrentScreen()
             }
         }
         wakeObserver = NSWorkspace.shared.notificationCenter.addObserver(
@@ -40,6 +44,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         popover.delegate = self
         store.onChange = { [weak self] in self?.updateStatusItem() }
         store.onChange?()
+        // Build and lay out the details before a click needs them. This never
+        // fetches an account, opens a window or consumes a reset credit.
+        prepareMenuForCurrentScreen()
         if CommandLine.arguments.contains("--check-menu") {
             Task { await checkMenu() }
             return
@@ -78,29 +85,63 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     }
 
     private func showMenu() {
+        let started = ProcessInfo.processInfo.systemUptime
+        defer {
+            if CommandLine.arguments.contains("--check-menu") {
+                print(String(format: "Menu open main-thread work: %.1f ms", (ProcessInfo.processInfo.systemUptime - started) * 1000))
+            }
+        }
         guard !popover.isShown, let button = statusItem.button, button.window != nil,
               let screen = button.window?.screen ?? NSScreen.main else { return }
         store.now = Date()
-        let size = NSSize(width: min(400, screen.visibleFrame.width - 16),
-                          height: min(600, screen.visibleFrame.height - 32))
-        let content = ScrollView(.vertical) {
-            PaceView(store: store, openWindow: { [weak self] in self?.showWindow() })
-        }
-        .frame(width: size.width, height: size.height, alignment: .top)
-        .background(Color(nsColor: .windowBackgroundColor))
-        let host = NSHostingController(rootView: content)
-        host.sizingOptions = []
-        popover.contentViewController = host
-        popover.contentSize = size
+        prepareMenu(size: menuSize(on: screen))
         // AppKit owns outside-click dismissal, focus, and nested Picker/Menu
         // tracking. Do not activate the app or install competing event monitors.
         popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
+    }
+
+    private func menuSize(on screen: NSScreen) -> NSSize {
+        NSSize(width: min(400, screen.visibleFrame.width - 16),
+               height: min(600, screen.visibleFrame.height - 32))
+    }
+
+    private func prepareMenuForCurrentScreen(resetContent: Bool = false) {
+        guard let screen = statusItem.button?.window?.screen ?? NSScreen.main else { return }
+        prepareMenu(size: menuSize(on: screen), resetContent: resetContent)
+    }
+
+    private func prepareMenu(size: NSSize, resetContent: Bool = false) {
+        guard menuHost == nil || preparedMenuSize != size || resetContent else { return }
+        if resetContent { menuGeneration += 1 }
+        let content = AnyView(ScrollView(.vertical) {
+            PaceView(store: store, openWindow: { [weak self] in self?.showWindow() })
+        }
+        .id(menuGeneration)
+        .frame(width: size.width, height: size.height, alignment: .top)
+        .background(Color(nsColor: .windowBackgroundColor)))
+        let host: NSHostingController<AnyView>
+        if let existing = menuHost {
+            host = existing
+            host.rootView = content
+        } else {
+            host = NSHostingController(rootView: content)
+            host.sizingOptions = []
+            menuHost = host
+            popover.contentViewController = host
+        }
+        preparedMenuSize = size
+        popover.contentSize = size
+        host.view.setFrameSize(size)
+        host.view.layoutSubtreeIfNeeded()
     }
 
     private func hideMenu() { popover.performClose(nil) }
 
     func popoverDidClose(_ notification: Notification) {
         updateStatusItem(force: true)
+        // Reset transient confirmations/disclosures as before, and do their
+        // layout while closed instead of rebuilding on the next click.
+        prepareMenuForCurrentScreen(resetContent: true)
     }
 
     // Exercises real AppKit status-button actions across run-loop turns. It does
@@ -112,9 +153,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
             fail("Startup must leave a ready status button and a closed popover")
         }
         checkStatusRendering()
+        guard let preparedHost = menuHost, popover.contentViewController === preparedHost else {
+            fail("Details must be prepared before the first click")
+        }
         for cycle in 1...3 {
             button.performClick(nil)
             try? await Task.sleep(nanoseconds: 400_000_000)
+            guard popover.contentViewController === preparedHost else {
+                fail("Opening rebuilt the hosting controller")
+            }
             guard popover.isShown, let popupWindow = popover.contentViewController?.view.window, popupWindow.isVisible else {
                 fail("Click \(cycle) did not keep the details visible")
             }
@@ -133,7 +180,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
                 fail("Status label is missing, clipped or using a separate title")
             }
         }
-        print("PASS 菜单栏冷启动、连续三次展开/收起、更新时保持显示及屏幕边界")
+        let originalSize = preparedMenuSize!
+        prepareMenu(size: NSSize(width: originalSize.width, height: originalSize.height - 40))
+        guard popover.contentViewController === preparedHost,
+              popover.contentSize.height == originalSize.height - 40 else {
+            fail("Cached details did not adapt to available screen height")
+        }
+        prepareMenu(size: originalSize)
+        print("PASS 菜单栏预加载、控制器复用、连续展开/收起、更新时保持显示及屏幕尺寸适配")
         exit(0)
     }
 

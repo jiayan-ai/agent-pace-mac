@@ -72,7 +72,7 @@ public enum CodexClient {
             data.append(10)
             try input.fileHandleForWriting.write(contentsOf: data)
         }
-        try send(["id": 1, "method": "initialize", "params": ["clientInfo": ["name": "agent_pace", "title": "Agent Pace", "version": "1.10.1"]]])
+        try send(["id": 1, "method": "initialize", "params": ["clientInfo": ["name": "agent_pace", "title": "Agent Pace", "version": "1.10.2"]]])
         var buffer = Data()
         var accountKey: String?
         var quota: UsageSnapshot?
@@ -181,7 +181,7 @@ public enum CodexClient {
                 data.append(10)
                 try input.fileHandleForWriting.write(contentsOf: data)
             }
-            try send(["id": 1, "method": "initialize", "params": ["clientInfo": ["name": "agent_pace", "title": "Agent Pace", "version": "1.10.1"], "capabilities": ["experimentalApi": true, "requestAttestation": false]]])
+            try send(["id": 1, "method": "initialize", "params": ["clientInfo": ["name": "agent_pace", "title": "Agent Pace", "version": "1.10.2"], "capabilities": ["experimentalApi": true, "requestAttestation": false]]])
             let fd = output.fileHandleForReading.fileDescriptor
             _ = fcntl(fd, F_SETFL, fcntl(fd, F_GETFL) | O_NONBLOCK)
             var buffer = Data()

@@ -6,7 +6,6 @@ struct PaceView: View {
     @ObservedObject var store: PaceStore
     var openWindow: (() -> Void)?
     @State private var showExplanation = false
-    @State private var loginEnabled = SMAppService.mainApp.status == .enabled
     @State private var loginFailed = false
     private var accent: Color { store.provider == .codex ? Color(red: 0.32, green: 0.35, blue: 0.87) : Color(red: 0.77, green: 0.42, blue: 0.29) }
     private var overBudget: Bool { (store.validBudget?.overBudget ?? 0) > 0 }
@@ -33,15 +32,19 @@ struct PaceView: View {
                 } else if let pace = store.creditPace {
                     creditPacing(pace)
                     metrics(selected)
-                    if let plan = store.resetPlanBudget { ResetPlanSummaryView(plan: plan) }
+                    if let plan = store.resetPlanBudget {
+                        ResetPlanSummaryView(plan: plan).id(store.language)
+                    }
                 } else if store.creditPlanNeedsConfirmation {
                     Label(L("Reset 券状态待同步确认，请刷新额度。"), systemImage: "clock.arrow.circlepath")
                         .font(.callout).foregroundStyle(.orange)
                     metrics(selected)
                 } else if let plan = store.resetPlanBudget {
                     ResetPlanDailyView(plan: plan, accent: accent)
+                        .id(store.language)
                     metrics(selected)
                     ResetPlanSummaryView(plan: plan)
+                        .id(store.language)
                 } else {
                     hero
                     metrics(selected)
@@ -273,14 +276,15 @@ struct PaceView: View {
                             .disabled(store.isRefreshing)
                     }
                 }
-                Toggle(L("登录 Mac 时启动"), isOn: $loginEnabled)
-                    .onChange(of: loginEnabled) { enabled in
+                Toggle(L("登录 Mac 时启动"), isOn: Binding(
+                    get: { SMAppService.mainApp.status == .enabled },
+                    set: { enabled in
                         do {
                             if enabled { try SMAppService.mainApp.register() }
                             else { try SMAppService.mainApp.unregister() }
                             loginFailed = false
                         } catch { loginFailed = true }
-                    }
+                    }))
                 if loginFailed { Text(L("请在系统设置 → 通用 → 登录项中检查启动权限。")).foregroundStyle(.orange) }
             }.font(.caption).foregroundStyle(.secondary).padding(.top, 9)
         }.font(.caption).foregroundStyle(.secondary)

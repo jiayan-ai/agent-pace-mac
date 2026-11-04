@@ -6,7 +6,8 @@ struct ResetRadarView: View {
     @State private var expanded = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        let assessment = store.resetRadarEnabled ? store.resetRadarAssessment : nil
+        return VStack(alignment: .leading, spacing: 10) {
             HStack {
                 Label(L("Tibo · Reset 动态"), systemImage: "antenna.radiowaves.left.and.right")
                     .font(.callout.weight(.medium))
@@ -14,11 +15,11 @@ struct ResetRadarView: View {
                 Text(L("公开消息")).font(.caption2).foregroundStyle(.secondary)
             }
             if store.resetRadarEnabled {
-                Text(store.resetRadarAssessment?.title ?? (store.resetRadarRefreshing ? L("正在同步 Reset 动态…") : L("等待公开消息")))
+                Text(assessment?.title ?? (store.resetRadarRefreshing ? L("正在同步 Reset 动态…") : L("等待公开消息")))
                     .font(.callout.weight(.semibold))
-                Text(store.resetRadarAssessment?.detail ?? store.resetRadarError ?? L("每 15 分钟检查公开 reset 记录。"))
+                Text(assessment?.detail ?? store.resetRadarError ?? L("每 15 分钟检查公开 reset 记录。"))
                     .font(.caption).foregroundStyle(.secondary)
-                if let event = store.resetRadarAssessment?.event {
+                if let event = assessment?.event {
                     record(event)
                 } else if let event = store.resetRadar?.feed.latest("global_reset", at: store.now) {
                     HStack(alignment: .firstTextBaseline) {

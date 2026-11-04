@@ -10,15 +10,15 @@ struct ResetInsightsView: View {
         let accountKey: String
     }
     private var credits: ResetCredits? { store.snapshot?.response.rateLimitResetCredits }
-    private var pattern: UsagePattern { store.usagePattern }
-    private var advice: ResetAdvice { store.resetAdvice }
     private var countLabel: String {
         guard let count = credits?.availableCount, count >= 0 else { return L("数量未知") }
         return L("\(store.stale ? L("上次 ") : "")\(count) 次可用")
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        let pattern = store.usagePattern
+        let advice = store.resetAdvice
+        return VStack(alignment: .leading, spacing: 10) {
             HStack {
                 Label(L("Reset 助手"), systemImage: "arrow.counterclockwise.circle")
                     .font(.callout.weight(.medium))
@@ -26,7 +26,7 @@ struct ResetInsightsView: View {
                 Text(countLabel)
                     .font(.caption.weight(.semibold)).foregroundStyle(.secondary)
             }
-            resetDetails
+            resetDetails(advice: advice)
             if store.stale {
                 Text(L("请先同步最新额度，再使用 Reset。"))
                     .font(.caption).foregroundStyle(.secondary)
@@ -52,7 +52,7 @@ struct ResetInsightsView: View {
                 VStack(alignment: .leading, spacing: 10) {
                     Text(L("近 30 天 · \(pattern.observedDays) 天有记录 · \(pattern.activeDays) 天活跃"))
                         .font(.caption.weight(.medium))
-                    activityChart
+                    activityChart(pattern: pattern)
                     if let weekday = pattern.busyWeekday {
                         Text(L("\(UsagePattern.weekdayName(weekday)) 通常用量较高；只比较有记录的日期。"))
                     } else {
@@ -91,7 +91,7 @@ struct ResetInsightsView: View {
         }
     }
 
-    private var activityChart: some View {
+    private func activityChart(pattern: UsagePattern) -> some View {
         let calendar = AccountActivity.calendar
         let today = calendar.startOfDay(for: store.now)
         let maximum = max(1, pattern.days.map(\.tokens).max() ?? 1)
@@ -110,7 +110,7 @@ struct ResetInsightsView: View {
         }.frame(height: 40, alignment: .bottom)
     }
 
-    @ViewBuilder private var resetDetails: some View {
+    @ViewBuilder private func resetDetails(advice: ResetAdvice) -> some View {
         if let credits {
             if let details = credits.credits {
                 let available = details.filter { $0.status == "available" }

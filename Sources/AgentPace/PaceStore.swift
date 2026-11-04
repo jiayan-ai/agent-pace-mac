@@ -44,8 +44,12 @@ final class PaceStore: ObservableObject {
     private var lastAttempt: [UsageProvider: Date] = [:]
     private var retryAfter: [UsageProvider: Date] = [:]
     private let cacheURL: URL
+    // These summaries depend on activity and the UTC day, not the current minute.
+    // Keep their caches unpublished so reading them while rendering emits no updates.
+    private var usagePatternCache: (provider: UsageProvider, day: Date, value: UsagePattern)?
+    private var codexTokensCache: (day: Date, value: CodexTokenActivity)?
 
-    init() {
+    init(diagnostics: Bool = false) {
         cacheURL = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("CodexPace/state.json")
         resetRadarCacheURL = cacheURL.deletingLastPathComponent().appendingPathComponent("reset-radar.json")
@@ -56,6 +60,9 @@ final class PaceStore: ObservableObject {
         if let data = try? Data(contentsOf: cacheURL), let saved = try? JSONDecoder().decode(PaceHistory.self, from: data) {
             history = saved
         }
+        // Menu diagnostics can use saved display data without triggering background
+        // account refreshes, automatic Reset, wake handling, or local token scans.
+        guard !diagnostics else { return }
         timer = Timer.scheduledTimer(withTimeInterval: 15, repeats: true) { [weak self] _ in
             Task { @MainActor in
                 guard let self else { return }
@@ -175,10 +182,22 @@ final class PaceStore: ObservableObject {
             : L("\(provider.title) · 今天还可用的额度")
     }
     var daysLeft: Double? { selected?.window.resetDate.map { max(0, $0.timeIntervalSince(now) / 86400) } }
-    var usagePattern: UsagePattern { UsagePattern(activity: history[provider].activity, now: now) }
+    var usagePattern: UsagePattern {
+        let day = AccountActivity.calendar.startOfDay(for: now)
+        if let cached = usagePatternCache, cached.provider == provider, cached.day == day {
+            return cached.value
+        }
+        let value = UsagePattern(activity: history[provider].activity, now: now)
+        usagePatternCache = (provider, day, value)
+        return value
+    }
     var activityUpdatedAt: Date? { history[provider].activityFetchedAt }
     var codexTokens: CodexTokenActivity {
-        CodexTokenActivity(activity: history[.codex].activity, now: now)
+        let day = AccountActivity.calendar.startOfDay(for: now)
+        if let cached = codexTokensCache, cached.day == day { return cached.value }
+        let value = CodexTokenActivity(activity: history[.codex].activity, now: now)
+        codexTokensCache = (day, value)
+        return value
     }
     var codexTokensUpdatedAt: Date? { history[.codex].activityFetchedAt }
     var codexTokensStale: Bool {
@@ -476,6 +495,9 @@ final class PaceStore: ObservableObject {
             // Commit to the provider that started this request, even if the
             // visible toggle changed while it was loading.
             history[provider].ingest(current)
+            // Ingestion may replace activity or clear it after an account change.
+            if usagePatternCache?.provider == provider { usagePatternCache = nil }
+            if provider == .codex { codexTokensCache = nil }
             persist()
             if provider == .codex { checkAutoResetStatus(); tryAutoReset() }
         case .failure(let failure):

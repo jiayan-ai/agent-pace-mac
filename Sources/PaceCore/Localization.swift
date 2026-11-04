@@ -55,10 +55,13 @@ public struct LocalizedMessage: ExpressibleByStringLiteral, ExpressibleByStringI
             key += "{\(arguments.count)}"; arguments.append(String(describing: value))
         }
     }
+    private static let placeholders = try! NSRegularExpression(pattern: "\\{([0-9]+)\\}")
+
     public var text: String {
         let template = Localization.isChinese ? key : EnglishStrings.values[key] ?? key
         // Parse placeholders in the template only; arguments may contain braces.
-        let expression = try! NSRegularExpression(pattern: "\\{([0-9]+)\\}")
+        guard !arguments.isEmpty else { return template }
+        let expression = Self.placeholders
         let source = template as NSString
         var result = "", cursor = 0
         for match in expression.matches(in: template, range: NSRange(location: 0, length: source.length)) {
