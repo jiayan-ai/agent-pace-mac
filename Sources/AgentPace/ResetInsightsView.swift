@@ -44,6 +44,18 @@ struct ResetInsightsView: View {
             if let message = store.autoResetMessage {
                 Text(message).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             }
+            if let result = store.lastResetResult {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(L("最近服务端结果 · \(resetTime(result.completedAt))"))
+                        .foregroundStyle(.secondary)
+                    Text(resetResultDescription(result.outcome))
+                        .foregroundStyle(result.outcome == .nothingToReset || result.outcome == .noCredit ? Color.orange : Color.secondary)
+                }.font(.caption).fixedSize(horizontal: false, vertical: true)
+            }
+            if store.autoResetEnabled {
+                Text(L("若服务端确认未使用，会在到期前每隔至少 1 分钟重新核对并尝试；是否可重置由 Codex 决定。"))
+                    .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            }
             Text(advice.title).font(.callout.weight(.semibold))
                 .foregroundStyle(advice.kind == .consider ? Color.orange : Color.primary)
             Text(advice.reason).font(.caption).foregroundStyle(.secondary)
@@ -88,6 +100,15 @@ struct ResetInsightsView: View {
                 Text(L("将消耗这张 Reset 券，恢复符合条件的额度。剩余额度不会累加，重置周期可能重新开始。此操作无法撤销。")
                      + "\n\n" + (selection.credit.expiryDate.map { L("有效期至") + " " + resetTime($0) } ?? L("服务端未提供到期时间")))
             }
+        }
+    }
+
+    private func resetResultDescription(_ outcome: AutoResetOutcome) -> String {
+        switch outcome {
+        case .reset: return L("Codex 已确认重置成功。")
+        case .alreadyRedeemed: return L("Codex 确认这张 Reset 已使用。")
+        case .nothingToReset: return L("Codex 返回「当前没有可重置的额度」，此次未使用 Reset。")
+        case .noCredit: return L("Codex 返回「该券不可用」，此次未使用 Reset。")
         }
     }
 

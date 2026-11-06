@@ -130,6 +130,8 @@ If a network interruption leaves the result unknown, Agent Pace pauses redemptio
 
 Automatic redemption is **off by default**. If enabled, Agent Pace attempts to redeem the specific available Codex reset credit five minutes before it expires. The app must be running, the Mac awake and an internet connection available; a sleeping or closed app cannot guarantee an on-time attempt. The server decides eligibility and may reject a request, so redemption is not guaranteed. A reset restores eligible usage limits rather than adding unused quota to the new allowance, and can change their next reset times. Public reset announcements and forecasts do not trigger redemption. You can turn the feature off at any time.
 
+If Codex explicitly reports `nothingToReset` or `noCredit`, the automatic flow can retry after at least 60 seconds while the credit is still in its final five minutes. Each new attempt rechecks the account, authorization and current credit availability before sending. Unknown results retain the same request key; confirmed successful redemptions are never sent again. Quota refreshes also run at one-minute intervals near expiry so a failed refresh does not defer the next check by five minutes. The latest confirmed server result and its recorded time remain visible after restarting, separately from any current attempt or unresolved result. A `nothingToReset` response means that attempt did not use the credit; it is not a successful reset.
+
 ## Reset advisor
 
 The Codex panel reads available reset counts, reported expiry details and 30 days of daily token activity through the local app server. Expand **Usage patterns · last 30 days** to see the chart and recommendations.

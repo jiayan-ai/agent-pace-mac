@@ -7,6 +7,7 @@ final class PaceStore: ObservableObject {
     @Published private(set) var autoResetEnabled = (try? AutoResetAuthorization.authorizedAccount()) != nil
     @Published private(set) var autoResetUnconfirmed = false
     @Published private(set) var autoResetMessage: String?
+    @Published private(set) var lastResetResult: AutoResetCompletedAttempt?
     @Published private var autoResetRunning = false
     @Published private(set) var manualResetCreditID: String?
     var resetBusy: Bool { autoResetRunning || manualResetCreditID != nil }
@@ -60,10 +61,11 @@ final class PaceStore: ObservableObject {
         if let data = try? Data(contentsOf: cacheURL), let saved = try? JSONDecoder().decode(PaceHistory.self, from: data) {
             history = saved
         }
+        checkAutoResetStatus()
         // Menu diagnostics can use saved display data without triggering background
         // account refreshes, automatic Reset, wake handling, or local token scans.
         guard !diagnostics else { return }
-        timer = Timer.scheduledTimer(withTimeInterval: 15, repeats: true) { [weak self] _ in
+        timer = Timer(timeInterval: 15, repeats: true) { [weak self] _ in
             Task { @MainActor in
                 guard let self else { return }
                 self.now = Date()
@@ -78,7 +80,14 @@ final class PaceStore: ObservableObject {
                     } ?? false)
                     let creditExpired = provider == .codex && ResetCreditPace.expiredDetailsNeedRefresh(
                         credits: record.snapshot?.response.rateLimitResetCredits, now: self.now)
-                    let interval: TimeInterval = crossedDay || sessionResetPassed || creditExpired ? 60 : 300
+                    var interval: TimeInterval = crossedDay || sessionResetPassed || creditExpired ? 60 : 300
+                    if provider == .codex {
+                        // A failed quota refresh must not block redemption for the
+                        // entire five-minute window before the next normal refresh.
+                        interval = min(interval, AutoResetPolicy.refreshInterval(
+                            credits: record.snapshot?.response.rateLimitResetCredits,
+                            enabled: self.autoResetEnabled, now: self.now))
+                    }
                     if self.now.timeIntervalSince(self.lastAttempt[provider] ?? .distantPast) >= interval {
                         self.refresh(provider: provider)
                     }
@@ -94,6 +103,7 @@ final class PaceStore: ObservableObject {
                 }
             }
         }
+        if let timer { RunLoop.main.add(timer, forMode: .common) }
         wakeObserver = NSWorkspace.shared.notificationCenter.addObserver(forName: NSWorkspace.didWakeNotification, object: nil, queue: .main) { [weak self] _ in
             Task { @MainActor in self?.refreshAll() }
         }
@@ -267,13 +277,17 @@ final class PaceStore: ObservableObject {
         let creditID = credit.id
         DispatchQueue.global(qos: .utility).async { [weak self] in
             let result = Result {
-                try AutoResetJournal.perform(directory: directory, accountKey: accountKey, creditID: creditID) { key in
+                try AutoResetJournal.perform(directory: directory, accountKey: accountKey, creditID: creditID,
+                                             retryKnownUnused: true, minimumRetryInterval: 60) { key in
                     try CodexClient.consumeResetCredit(expectedAccountKey: accountKey, creditID: creditID, idempotencyKey: key)
                 }
             }
             Task { @MainActor in
                 guard let self else { return }
                 self.autoResetRunning = false
+                // Space retries from the result, matching the durable journal's
+                // interval even when the request itself takes several seconds.
+                self.autoResetAttempt = Date()
                 switch result {
                 case .success(.reset): self.autoResetMessage = L("已自动使用 Reset，正在同步额度。")
                 case .success(.alreadyRedeemed): self.autoResetMessage = L("这张 Reset 已使用，正在同步额度。")
@@ -291,6 +305,13 @@ final class PaceStore: ObservableObject {
 
     private func checkAutoResetStatus() {
         guard !resetBusy, let account = history[.codex].snapshot?.accountKey else { return }
+        do {
+            let latest = try AutoResetJournal.latestCompletedAttempt(directory: cacheURL.deletingLastPathComponent(), accountKey: account)
+            if latest != lastResetResult { lastResetResult = latest }
+        } catch {
+            // Never carry another account's result across a switch if reading fails.
+            lastResetResult = nil
+        }
         if let value = try? AutoResetJournal.hasUnconfirmed(directory: cacheURL.deletingLastPathComponent(), accountKey: account) {
             autoResetUnconfirmed = value
         }

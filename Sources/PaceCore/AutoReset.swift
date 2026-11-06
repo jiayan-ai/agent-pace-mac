@@ -17,10 +17,21 @@ public enum AutoResetPolicy {
             return $0.expiryDate! < $1.expiryDate!
         }.first
     }
+
+    /// Leave time to recover from a failed refresh before a known credit expires.
+    public static func refreshInterval(credits: ResetCredits?, enabled: Bool, now: Date) -> TimeInterval {
+        enabled && candidate(credits: credits, now: now) != nil ? 60 : 300
+    }
 }
 
 public enum AutoResetOutcome: String, Codable {
     case reset, nothingToReset, noCredit, alreadyRedeemed
+}
+
+/// A display-safe summary without account, credit, or idempotency identifiers.
+public struct AutoResetCompletedAttempt: Codable, Equatable {
+    public let outcome: AutoResetOutcome
+    public let completedAt: Date
 }
 
 public enum ResetRedemptionMode {
@@ -77,11 +88,17 @@ public enum AutoResetJournal {
         var completedAt: Date?
         var resolvedAt: Date?
     }
-    private struct State: Codable { var attempts: [String: Attempt] = [:] }
+    private struct State: Codable {
+        var attempts: [String: Attempt] = [:]
+        // Optional for journals written before completed summaries were retained separately.
+        var lastCompletedByAccount: [String: AutoResetCompletedAttempt]?
+    }
 
     public static func perform(directory: URL, accountKey: String, creditID: String,
                                retryKnownUnused: Bool = false,
+                               minimumRetryInterval: TimeInterval = 0, now: Date? = nil,
                                redeem: (String) throws -> AutoResetOutcome) throws -> AutoResetOutcome {
+        let checkedAt = now ?? Date()
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let lockURL = directory.appendingPathComponent("auto-reset.lock")
         let fd = open(lockURL.path, O_CREAT | O_RDWR, 0o600)
@@ -95,8 +112,17 @@ public enum AutoResetJournal {
             state = try JSONDecoder().decode(State.self, from: Data(contentsOf: file))
         } else { state = State() }
         let entryID = accountKey + ":" + creditID
-        if let outcome = state.attempts[entryID]?.outcome {
+        if let previous = state.attempts[entryID], let outcome = previous.outcome {
             if retryKnownUnused && (outcome == .nothingToReset || outcome == .noCredit) {
+                if minimumRetryInterval > 0 {
+                    guard let completedAt = previous.completedAt,
+                          checkedAt.timeIntervalSince(completedAt) >= minimumRetryInterval else { return outcome }
+                }
+                // Keep the confirmed result even if this retry fails before dispatch.
+                if let completedAt = previous.completedAt {
+                    remember(AutoResetCompletedAttempt(outcome: outcome, completedAt: completedAt),
+                             accountKey: accountKey, in: &state)
+                }
                 state.attempts.removeValue(forKey: entryID)
             } else { return outcome }
         }
@@ -107,7 +133,7 @@ public enum AutoResetJournal {
         // A successful redemption resets the same pool; prevent consuming multiple credits together.
         if state.attempts.contains(where: { id, attempt in
             id.hasPrefix(accountKey + ":") && (attempt.outcome == .reset || attempt.outcome == .alreadyRedeemed) &&
-            attempt.completedAt.map { Date().timeIntervalSince($0) < 300 } == true
+            attempt.completedAt.map { checkedAt.timeIntervalSince($0) < 300 } == true
         }) { throw AutoResetJournalError.cooldown }
         let isNew = state.attempts[entryID] == nil
         if isNew { state.attempts[entryID] = Attempt(key: UUID().uuidString) }
@@ -127,10 +153,32 @@ public enum AutoResetJournal {
             }
             throw error
         }
+        let completedAt = now ?? Date()
         state.attempts[entryID]!.outcome = outcome
-        state.attempts[entryID]!.completedAt = Date()
+        state.attempts[entryID]!.completedAt = completedAt
+        remember(AutoResetCompletedAttempt(outcome: outcome, completedAt: completedAt), accountKey: accountKey, in: &state)
         try save(state)
         return outcome
+    }
+
+    public static func latestCompletedAttempt(directory: URL, accountKey: String) throws -> AutoResetCompletedAttempt? {
+        try access(directory: directory, save: false) { state in
+            var latest = state.lastCompletedByAccount?[accountKey]
+            // Old journals have only per-credit entries; include them during migration.
+            for (id, attempt) in state.attempts where id.hasPrefix(accountKey + ":") {
+                guard let outcome = attempt.outcome, let completedAt = attempt.completedAt else { continue }
+                if latest == nil || completedAt > latest!.completedAt {
+                    latest = AutoResetCompletedAttempt(outcome: outcome, completedAt: completedAt)
+                }
+            }
+            return latest
+        }
+    }
+
+    private static func remember(_ completed: AutoResetCompletedAttempt, accountKey: String, in state: inout State) {
+        if let previous = state.lastCompletedByAccount?[accountKey], previous.completedAt > completed.completedAt { return }
+        if state.lastCompletedByAccount == nil { state.lastCompletedByAccount = [:] }
+        state.lastCompletedByAccount?[accountKey] = completed
     }
 
     public static func hasUnconfirmed(directory: URL, accountKey: String) throws -> Bool {
