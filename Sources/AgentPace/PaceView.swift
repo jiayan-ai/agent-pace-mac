@@ -29,16 +29,16 @@ struct PaceView: View {
                 if let pace = store.sessionPace {
                     ClaudeSessionView(pace: pace, stale: store.stale, accent: accent)
                         .id(store.language)
+                } else if store.creditPlanNeedsConfirmation {
+                    Label(L("额度计划待同步确认，请刷新额度。"), systemImage: "clock.arrow.circlepath")
+                        .font(.callout).foregroundStyle(.orange)
+                    metrics(selected)
                 } else if let pace = store.creditPace {
                     creditPacing(pace)
                     metrics(selected)
                     if let plan = store.resetPlanBudget {
                         ResetPlanSummaryView(plan: plan).id(store.language)
                     }
-                } else if store.creditPlanNeedsConfirmation {
-                    Label(L("Reset 券状态待同步确认，请刷新额度。"), systemImage: "clock.arrow.circlepath")
-                        .font(.callout).foregroundStyle(.orange)
-                    metrics(selected)
                 } else if let plan = store.resetPlanBudget {
                     ResetPlanDailyView(plan: plan, accent: accent)
                         .id(store.language)
@@ -163,7 +163,7 @@ struct PaceView: View {
             }.frame(maxWidth: .infinity, alignment: .leading)
             Rectangle().fill(.quaternary).frame(width: 1, height: 66).padding(.trailing, 22)
             VStack(alignment: .leading, spacing: 7) {
-                Label(store.creditPace == nil ? L("距离重置") : L("距离自然重置"), systemImage: "arrow.clockwise").font(.caption).foregroundStyle(.secondary)
+                Label(store.provider == .codex ? L("距离自然重置") : L("距离重置"), systemImage: "arrow.clockwise").font(.caption).foregroundStyle(.secondary)
                 HStack(alignment: .firstTextBaseline, spacing: 4) {
                     Text(store.daysLeft.map { String(format: "%.2f", $0) } ?? "—")
                         .font(.system(size: 25, weight: .semibold, design: .rounded)).monospacedDigit()
@@ -245,12 +245,12 @@ struct PaceView: View {
                     Text(L("仅当可用 Reset 券在 72 小时内到期且早于自然重置时，按最早到期券规划；不足 1 小时显示实际剩余额度。"))
                     Text(L("这是用量建议，券到期不会自动重置，实际使用仍受其他额度窗口限制。"))
                 } else if store.creditPlanNeedsConfirmation {
-                    Text(L("Reset 券状态待同步确认，请刷新额度。"))
+                    Text(L("额度计划待同步确认，请刷新额度。"))
                 } else if let plan = store.resetPlanBudget {
-                    Text(L("今日首次同步：\(number(plan.startingRemaining))% + \(plan.creditIDs.count) × 100% = \(number(plan.startingTotal))%；÷ \(plan.planningDays) 天 = \(number(plan.allowance))% / 天。"))
-                    Text(L("按本机日历包含今天和到期日；只计最早到期且期限相同的已验证券。自然重置的未来补额不预先计入，确认后只更新实际余额。"))
-                    Text(L("当天预算固定，只扣已同步到的消耗；兑换或额度回升不会清零当日记录。跨重置间隙的未观测用量不推测；跨日重新计算。"))
-                    Text(L("券用完、撤销或过期后不再计入可用计划总量；新券次日再纳入。当日计划仍受实际余额和有效券容量限制。"))
+                    Text(L("本次预算 \(number(plan.allowance))% − 本次已用 \(number(plan.periodConsumed))% = 建议剩余 \(number(plan.leftToday))%。"))
+                    Text(L("Reset 到期、券状态变化或额度重置后，按最新余额和截止时间重算；新预算只扣重算之后的用量。今日累计单独保留，不再次扣除。"))
+                    Text(L("只把不晚于本轮自然重置到期的券纳入计划；按最早到期批次计算，并包含今天和到期日。其他时候按距自然重置的小数天数均摊，不足一天按一天。"))
+                    Text(L("普通刷新不重新分配预算；同一周期内不重复计算回调的用量，跨重置间隙的未观测消耗不推测。"))
                 } else if let pace = store.sessionPace {
                     if let remaining = pace.remaining, let seconds = pace.secondsRemaining,
                        seconds >= 3600, let allowance = pace.allowance {

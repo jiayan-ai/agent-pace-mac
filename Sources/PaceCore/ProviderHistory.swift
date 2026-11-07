@@ -22,7 +22,11 @@ public struct ProviderHistory: Codable {
         self.selectedID = selectedID
     }
 
-    public mutating func ingest(_ current: UsageSnapshot, calendar: Calendar = .current) {
+    public mutating func ingest(_ current: UsageSnapshot, confirmedReset: Bool = false,
+                                confirmedResetAt: Date? = nil,
+                                excludedCreditIDs: Set<String> = [],
+                                calendar: Calendar = .current) {
+        let priorSnapshot = snapshot
         if snapshot?.accountKey != current.accountKey {
             budgets = [:]
             resetPlanBudgets = nil
@@ -44,12 +48,25 @@ public struct ProviderHistory: Codable {
         }
         for item in current.response.windows {
             let key = "\(current.accountKey)/\(item.id)"
+            let priorPlan = resetPlanBudgets?[key]
+            let lastWindowObservation = priorPlan?.observedAt ??
+                (priorSnapshot?.accountKey == current.accountKey ? priorSnapshot?.fetchedAt : nil)
+            // A receipt must be applied to every affected window once. A newer
+            // provider snapshot may have omitted one of those windows, so its
+            // timestamp cannot replace that window's own observation baseline.
+            let hasNewResetReceipt = confirmedResetAt.map { receipt in
+                receipt.timeIntervalSince1970.isFinite && receipt <= current.fetchedAt &&
+                    lastWindowObservation.map { receipt > $0 } != false
+            } ?? false
             if let budget = DailyBudget.reconcile(previous: budgets[key], window: item.window, now: current.fetchedAt, calendar: calendar) {
                 next[key] = budget
             }
             if item.bucketID == "codex", let plan = ResetPlanBudget.reconcile(
-                previous: resetPlanBudgets?[key], window: item.window,
-                credits: current.response.rateLimitResetCredits, now: current.fetchedAt, calendar: calendar) {
+                previous: priorPlan, window: item.window,
+                credits: current.response.rateLimitResetCredits, now: current.fetchedAt,
+                confirmedReset: confirmedReset || hasNewResetReceipt,
+                excludedCreditIDs: excludedCreditIDs, calendar: calendar,
+                priorDailyBudget: budgets[key]) {
                 nextPlans[key] = plan
             }
         }

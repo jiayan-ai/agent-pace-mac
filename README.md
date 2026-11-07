@@ -68,7 +68,7 @@ Daily allowance B = R ÷ D
 Available today = min(current remaining, B − usage since today's first sync)
 ```
 
-For example, 70% remaining with seven days until reset gives a 10% daily allowance. Using another four percentage points leaves 6% for today. The daily allowance is fixed rather than recalculated after every refresh.
+For example, 70% remaining with seven days until reset gives a 10% daily allowance. Using another four percentage points leaves 6% for today. Ordinary refreshes keep the allowance fixed. Codex starts a new budget when a credit expires, its relevant credit pool changes or the quota resets; the separate daily consumption record is retained.
 
 If you use 17 percentage points against a 10% allowance, the balance is **−7.0%**. The details panel turns red; the menu bar follows the system's normal color. The next day starts from the actual remaining quota without deducting yesterday's excess again.
 
@@ -105,11 +105,22 @@ Missing data is never treated as zero usage. Expired windows wait for fresh data
 
 ### Daily plan including reset credits
 
-A verified reset credit can contribute **100 percentage points of potential capacity** to a daily plan. If November 1 starts with 100% remaining and one credit expires on November 6, the six local calendar dates give `(100% + 100%) / 6 = 33.3% per day`. The daily allowance is frozen at the first observation and actual observed consumption is deducted. A same-day redemption keeps that spending record and removes the redeemed credit from the potential pool.
+A verified reset credit expiring **on or before the current natural reset** can contribute **100 percentage points of potential capacity**. If November 1 starts with 100% remaining and one credit expires on November 6 before the natural reset, the six local calendar dates give `(100% + 100%) / 6 = 33.3% per day`. Only the earliest expiry batch is included. Later-expiring credits stay in the Reset advisor and do not extend the current window's planning horizon. Unknown, conflicting, expired or confirmed-used credits never add capacity.
 
-Only the earliest known expiry batch is included. Unknown, conflicting or expired credits never add capacity, and different expiry batches are not combined. The daily plan works whether the credit expires before or after the natural reset. Future natural-reset capacity is never added in advance; when a reset is actually reported, the plan uses the returned balance and preserves that day's observed spending. When expiry is within 72 hours and earlier than the natural reset, the existing hourly view stays primary; the reset-inclusive plan remains supporting information.
+Codex uses one daily consumption ledger and a budget that is recalculated when its basis changes:
 
-The plan is **not an available balance**. Existing quota must be used and a reset redeemed before its potential allowance becomes available; redeeming early does not preserve unused quota. Actual remaining quota is displayed separately. Automatic redemption still only attempts in the final five minutes and does not redeem early to fulfill the daily plan. Only observed consumption is tracked; usage missed between snapshots cannot be reconstructed.
+| Account state | Planning behavior |
+| --- | --- |
+| Valid credit expires by the natural reset | Plan from actual balance plus that expiry batch's potential capacity, using inclusive calendar dates. |
+| Credit expires within 72 hours, before natural reset | Highlight the countdown and actual remaining quota per hour; the daily plan is supporting information. |
+| Credit expires unused or its availability changes | End the old budget and recalculate from the latest balance and next relevant deadline. |
+| Redemption or natural reset is confirmed | Use the returned balance and deadline. Never add another 100% for an already-used credit. |
+| No relevant credit remains | Plan from actual quota until natural reset, using fractional days with a one-day minimum. |
+| Redemption is processing or the new quota is not yet confirmed | Show that synchronization is pending; do not show the old budget as current. |
+
+The displayed equation is **current budget − usage since calculation = suggested remaining**. A new calculation does not deduct earlier usage again; **recorded today** preserves that history separately. Normal refreshes do not continually increase the allowance, negative balances remain visible, and downward service corrections do not cause the same usage to be counted twice. Old saved budgets are migrated only after a fresh sync.
+
+For example, if an unused credit expires with 89% actual quota and 5.81 days until natural reset, the new budget is about `89 / 5.81 = 15.3%`. Credits expiring weeks later do not keep the expired 195% budget alive. The plan is **not an available balance**: pending capacity requires successful redemption, and early redemption does not preserve unused quota. Automatic use still attempts only in the final five minutes. Usage missed between snapshots cannot be reconstructed.
 
 ### Actual token records
 

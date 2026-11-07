@@ -17,13 +17,9 @@ public struct ResetCreditPace {
               naturalReset > now.timeIntervalSince1970,
               let credits, credits.availableCount > 0 else { return nil }
 
-        // An expired entry still reported as available makes the count uncertain.
-        // Wait for a fresh account response instead of assuming another credit exists.
-        guard !(credits.credits ?? []).contains(where: {
-            $0.status == "available" && $0.resetType == "codexRateLimits" &&
-            $0.expiryDate.map { $0 <= now } == true
-        }) else { return nil }
-        guard let credit = credits.usableDetails(at: now).first(where: { $0.expiryDate != nil }),
+        // Local expiry removes a credit from planning even if the service has
+        // not yet removed its row. Only verified, still-valid details can count.
+        guard let credit = ResetPlanBudget.verifiedCredits(credits, at: now).first,
               let expiry = credit.expiryDate, expiry.timeIntervalSince1970 < naturalReset,
               expiry.timeIntervalSince(now) <= planningHorizon else { return nil }
         return ResetCreditPace(remaining: remaining, expiryDate: expiry,
@@ -40,11 +36,11 @@ public struct ResetCreditPace {
               naturalReset > now.timeIntervalSince1970,
               let credits, credits.availableCount > 0 else { return false }
 
-        let approaching = credits.usableDetails(at: now).contains {
+        let approaching = ResetPlanBudget.verifiedCredits(credits, at: now).contains {
             $0.expiryDate.map { $0.timeIntervalSince(now) <= planningHorizon && $0.timeIntervalSince1970 < naturalReset } == true
         }
-        if expiredDetailsNeedRefresh(credits: credits, now: now, before: naturalReset) { return true }
-        return (stale || snapshotInFuture) && approaching
+        return (stale || snapshotInFuture) &&
+            (approaching || expiredDetailsNeedRefresh(credits: credits, now: now, before: naturalReset))
     }
 
     /// A very old expired entry alone should not cause 60-second polling forever.

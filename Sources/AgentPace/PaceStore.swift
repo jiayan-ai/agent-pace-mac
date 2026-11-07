@@ -8,7 +8,10 @@ final class PaceStore: ObservableObject {
     @Published private(set) var autoResetUnconfirmed = false
     @Published private(set) var autoResetMessage: String?
     @Published private(set) var lastResetResult: AutoResetCompletedAttempt?
+    @Published private var confirmedResetCreditIDs: Set<String> = []
+    @Published private var resetJournalReadable = true
     @Published private var autoResetRunning = false
+    @Published private var resetAwaitingQuotaSync = false
     @Published private(set) var manualResetCreditID: String?
     var resetBusy: Bool { autoResetRunning || manualResetCreditID != nil }
     private var autoResetAttempt: Date?
@@ -85,8 +88,9 @@ final class PaceStore: ObservableObject {
                         // A failed quota refresh must not block redemption for the
                         // entire five-minute window before the next normal refresh.
                         interval = min(interval, AutoResetPolicy.refreshInterval(
-                            credits: record.snapshot?.response.rateLimitResetCredits,
+                            credits: self.resetCreditsExcludingConfirmed(record.snapshot),
                             enabled: self.autoResetEnabled, now: self.now))
+                        if self.resetAwaitingQuotaSync || !self.resetJournalReadable { interval = min(interval, 60) }
                     }
                     if self.now.timeIntervalSince(self.lastAttempt[provider] ?? .distantPast) >= interval {
                         self.refresh(provider: provider)
@@ -112,6 +116,14 @@ final class PaceStore: ObservableObject {
 
     var provider: UsageProvider { history.selectedProvider }
     var snapshot: UsageSnapshot? { history[provider].snapshot }
+    var planningResetCredits: ResetCredits? {
+        resetCreditsExcludingConfirmed(snapshot)
+    }
+    private func resetCreditsExcludingConfirmed(_ snapshot: UsageSnapshot?) -> ResetCredits? {
+        guard let credits = snapshot?.response.rateLimitResetCredits else { return nil }
+        return ResetCredits(availableCount: credits.availableCount,
+                            credits: credits.credits?.filter { !confirmedResetCreditIDs.contains($0.id) })
+    }
     var selectedID: String { history[provider].selectedID }
     var isRefreshing: Bool { refreshing.contains(provider) }
     var error: String? { errors[provider].map { ($0 as? LocalizedError)?.errorDescription ?? L("额度同步失败，请稍后重试。") } }
@@ -122,19 +134,21 @@ final class PaceStore: ObservableObject {
         return ClaudeSessionPace(window: selected.window, now: now)
     }
     var creditPace: ResetCreditPace? {
-        guard provider == .codex, let selected, selected.bucketID == "codex", let snapshot,
+        guard provider == .codex, !resetBusy, !resetAwaitingQuotaSync, !autoResetUnconfirmed, resetJournalReadable,
+              let selected, selected.bucketID == "codex", let snapshot,
               now.timeIntervalSince(snapshot.fetchedAt) >= 0 else { return nil }
         return ResetCreditPace.evaluate(window: selected.window,
-                                        credits: snapshot.response.rateLimitResetCredits,
+                                        credits: planningResetCredits,
                                         stale: stale, now: now)
     }
     var creditPlanNeedsConfirmation: Bool {
         guard provider == .codex, let snapshot, let selected, selected.bucketID == "codex" else { return false }
+        if resetBusy || resetAwaitingQuotaSync || autoResetUnconfirmed || !resetJournalReadable { return true }
         if let plan = history[provider].resetPlanBudgets?["\(snapshot.accountKey)/\(selected.id)"],
            Calendar.current.startOfDay(for: now) == plan.dayStart,
            plan.timeZoneID == Calendar.current.timeZone.identifier,
            !plan.isCurrent(now: now, snapshotAt: snapshot.fetchedAt, stale: stale) { return true }
-        guard let credits = snapshot.response.rateLimitResetCredits, credits.availableCount > 0 else { return false }
+        guard let credits = planningResetCredits, credits.availableCount > 0 else { return false }
         return ResetCreditPace.needsConfirmation(window: selected.window, credits: credits, stale: stale,
                                                   snapshotInFuture: now.timeIntervalSince(snapshot.fetchedAt) < 0,
                                                   now: now)
@@ -147,7 +161,7 @@ final class PaceStore: ObservableObject {
         guard provider == .codex, let selected, selected.bucketID == "codex", let snapshot,
               let plan = history[provider].resetPlanBudgets?["\(snapshot.accountKey)/\(selected.id)"],
               plan.isCurrent(now: now, snapshotAt: snapshot.fetchedAt, stale: stale) else { return nil }
-        return plan.adjustedForExpiry(at: now)
+        return plan
     }
     var noActiveClaudeLimits: Bool {
         provider == .claude && snapshot != nil && windows.isEmpty && !stale
@@ -168,7 +182,9 @@ final class PaceStore: ObservableObject {
         if let pace = creditPace {
             return "Codex \(number(pace.allowance))\(pace.isFinalHour ? "% · <1h" : "%/h")"
         }
-        if let plan = resetPlanBudget { return "Codex \(number(plan.leftToday))% · \(L("计划"))" }
+        if let plan = resetPlanBudget {
+            return "Codex \(number(plan.leftToday))%" + (plan.includesReset ? " · \(L("计划"))" : "")
+        }
         let title = selected?.bucketID == "claude_fable" ? "Fable" : provider.shortTitle
         if noActiveClaudeLimits { return "Claude · \(L("无生效额度窗口"))" }
         guard let budget = validBudget else { return "\(title) \(isRefreshing ? L("同步中") : L("待同步"))" }
@@ -179,13 +195,15 @@ final class PaceStore: ObservableObject {
             let allowance = pace.allowance.map { "\(number($0))\(pace.unit)" } ?? L("待同步")
             return "Claude · \(pace.heading) \(allowance)\n\(pace.countdown)\(stale ? L(" · 上次记录") : "")"
         }
-        if creditPlanNeedsConfirmation { return L("Reset 券状态待同步确认，请刷新额度。") }
+        if creditPlanNeedsConfirmation { return L("额度计划待同步确认，请刷新额度。") }
         if let pace = creditPace {
             let value = "\(number(pace.allowance))\(pace.isFinalHour ? "%" : L("% / 小时"))"
             return L("Codex · Reset 券到期前建议 \(value)\n距到期 \(pace.countdown)")
         }
         if let plan = resetPlanBudget {
-            return L("Codex · 今日计划剩余 \(number(plan.leftToday))%（含 Reset 计划）；当前实际余额 \(number(plan.actualRemaining))%。")
+            return plan.includesReset
+                ? L("Codex · 今日计划剩余 \(number(plan.leftToday))%（含 Reset 计划）；当前实际余额 \(number(plan.actualRemaining))%。")
+                : L("Codex · 今日建议剩余 \(number(plan.leftToday))%；当前实际余额 \(number(plan.actualRemaining))%。")
         }
         let over = validBudget?.overBudget ?? 0
         return over > 0 ? L("\(provider.title) · 今日已超额 \(number(over)) 个百分点")
@@ -262,12 +280,12 @@ final class PaceStore: ObservableObject {
     }
 
     private func tryAutoReset() {
-        guard autoResetEnabled, !resetBusy, !refreshing.contains(.codex), verified.contains(.codex),
+        guard autoResetEnabled, !resetBusy, !resetAwaitingQuotaSync, !refreshing.contains(.codex), verified.contains(.codex),
               errors[.codex] == nil, let snapshot = history[.codex].snapshot,
               (try? AutoResetAuthorization.authorizedAccount()) == snapshot.accountKey,
               now.timeIntervalSince(snapshot.fetchedAt) >= 0,
               now.timeIntervalSince(snapshot.fetchedAt) < 660,
-              let credit = AutoResetPolicy.candidate(credits: snapshot.response.rateLimitResetCredits, now: now),
+              let credit = AutoResetPolicy.candidate(credits: resetCreditsExcludingConfirmed(snapshot), now: now),
               now.timeIntervalSince(autoResetAttempt ?? .distantPast) >= 60 else { return }
         autoResetRunning = true
         autoResetAttempt = now
@@ -285,6 +303,7 @@ final class PaceStore: ObservableObject {
             Task { @MainActor in
                 guard let self else { return }
                 self.autoResetRunning = false
+                self.resetAwaitingQuotaSync = true
                 // Space retries from the result, matching the durable journal's
                 // interval even when the request itself takes several seconds.
                 self.autoResetAttempt = Date()
@@ -308,9 +327,22 @@ final class PaceStore: ObservableObject {
         do {
             let latest = try AutoResetJournal.latestCompletedAttempt(directory: cacheURL.deletingLastPathComponent(), accountKey: account)
             if latest != lastResetResult { lastResetResult = latest }
+            let accounting = try AutoResetJournal.accountingState(directory: cacheURL.deletingLastPathComponent(), accountKey: account)
+            confirmedResetCreditIDs = accounting.confirmedCreditIDs
+            let currentKeys = Set((history[.codex].snapshot?.response.windows ?? []).map { "\(account)/\($0.id)" })
+            if history[.codex].resetPlanBudgets?.contains(where: { key, plan in
+                currentKeys.contains(key) &&
+                    (!Set(plan.availableCreditIDs).isDisjoint(with: accounting.confirmedCreditIDs) ||
+                     accounting.latestResetAt.map { $0 > plan.observedAt } == true)
+            }) == true {
+                resetAwaitingQuotaSync = true
+            }
+            resetJournalReadable = true
         } catch {
             // Never carry another account's result across a switch if reading fails.
             lastResetResult = nil
+            confirmedResetCreditIDs = []
+            resetJournalReadable = false
         }
         if let value = try? AutoResetJournal.hasUnconfirmed(directory: cacheURL.deletingLastPathComponent(), accountKey: account) {
             autoResetUnconfirmed = value
@@ -328,7 +360,8 @@ final class PaceStore: ObservableObject {
     }
 
     func canUseReset(_ credit: ResetCredit) -> Bool {
-        guard provider == .codex, !resetBusy, !isRefreshing, !stale,
+        guard provider == .codex, !resetBusy, !resetAwaitingQuotaSync, resetJournalReadable,
+              !confirmedResetCreditIDs.contains(credit.id), !isRefreshing, !stale,
               let snapshot, Date().timeIntervalSince(snapshot.fetchedAt) >= 0 else { return false }
         return ManualResetPolicy.credit(id: credit.id, credits: snapshot.response.rateLimitResetCredits, now: Date()) != nil
     }
@@ -360,6 +393,7 @@ final class PaceStore: ObservableObject {
             Task { @MainActor in
                 guard let self else { return }
                 self.manualResetCreditID = nil
+                self.resetAwaitingQuotaSync = true
                 // Let the fresh response arrive before another automatic attempt.
                 self.autoResetAttempt = Date()
                 if self.history[.codex].snapshot?.accountKey == accountKey {
@@ -498,6 +532,20 @@ final class PaceStore: ObservableObject {
         guard provider != .claude || claudeEnabled else { onChange?(); return }
         switch result {
         case .success(let current):
+            let accounting: (confirmedCreditIDs: Set<String>, latestResetAt: Date?)
+            do {
+                accounting = provider == .codex
+                    ? try AutoResetJournal.accountingState(directory: cacheURL.deletingLastPathComponent(), accountKey: current.accountKey)
+                    : ([], nil)
+            } catch {
+                // Without the redemption ledger, delayed server rows could count
+                // an already-used credit twice. Keep the old plan unconfirmed.
+                resetJournalReadable = false
+                errors[provider] = error
+                onChange?()
+                return
+            }
+            if provider == .codex { resetAwaitingQuotaSync = false }
             errors[provider] = nil
             retryAfter[provider] = nil
             verified.insert(provider)
@@ -515,7 +563,8 @@ final class PaceStore: ObservableObject {
             }
             // Commit to the provider that started this request, even if the
             // visible toggle changed while it was loading.
-            history[provider].ingest(current)
+            history[provider].ingest(current, confirmedResetAt: accounting.latestResetAt,
+                                     excludedCreditIDs: accounting.confirmedCreditIDs)
             // Ingestion may replace activity or clear it after an account change.
             if usagePatternCache?.provider == provider { usagePatternCache = nil }
             if provider == .codex { codexTokensCache = nil }

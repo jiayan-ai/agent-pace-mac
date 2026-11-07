@@ -175,6 +175,27 @@ public enum AutoResetJournal {
         }
     }
 
+    /// Confirmed redemptions cannot re-enter a budget while an account response
+    /// still contains a delayed "available" row. Uncertain/no-op attempts do not qualify.
+    public static func confirmedCreditIDs(directory: URL, accountKey: String) throws -> Set<String> {
+        try accountingState(directory: directory, accountKey: accountKey).confirmedCreditIDs
+    }
+
+    public static func accountingState(directory: URL, accountKey: String) throws -> (confirmedCreditIDs: Set<String>, latestResetAt: Date?) {
+        try access(directory: directory, save: false) { state in
+            let prefix = accountKey + ":"
+            let ids: Set<String> = Set(state.attempts.compactMap { id, attempt in
+                guard id.hasPrefix(prefix), attempt.outcome == .reset || attempt.outcome == .alreadyRedeemed else { return nil }
+                return String(id.dropFirst(prefix.count))
+            })
+            let latest = state.attempts.compactMap { id, attempt -> Date? in
+                guard id.hasPrefix(prefix), attempt.outcome == .reset else { return nil }
+                return attempt.completedAt
+            }.max()
+            return (ids, latest)
+        }
+    }
+
     private static func remember(_ completed: AutoResetCompletedAttempt, accountKey: String, in state: inout State) {
         if let previous = state.lastCompletedByAccount?[accountKey], previous.completedAt > completed.completedAt { return }
         if state.lastCompletedByAccount == nil { state.lastCompletedByAccount = [:] }

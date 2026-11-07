@@ -178,6 +178,8 @@ struct AutoResetTests {
         try expect(try Data(contentsOf: file) == legacyData)
         let summary = try require(JSONSerialization.jsonObject(with: JSONEncoder().encode(own)) as? [String: Any])
         try expect(Set(summary.keys) == Set(["outcome", "completedAt"]))
+        try expect(try AutoResetJournal.confirmedCreditIDs(directory: directory, accountKey: "account").isEmpty)
+        try expect(try AutoResetJournal.confirmedCreditIDs(directory: directory, accountKey: "account-other") == ["two"])
     }
 
     func testLatestCompletedAttemptSurvivesRetryFailures() throws {
