@@ -4,9 +4,7 @@ Windows 版本：[agent-pace-windows](https://github.com/jiayan-ai/agent-pace-wi
 
 [English](README.md) · 简体中文
 
-一个 macOS 菜单栏小工具，告诉你：按照剩余额度和重置时间，**今天还可以用多少个百分点**。
-
-A native macOS menu bar app that turns your remaining Codex / Claude subscription usage into a daily budget. Switch providers, track your pace, and see overspending as a red negative balance.
+一个跟踪 **Codex、Claude Code 和 Perplexity Computer** 用量的 macOS 菜单栏工具。查看今天还能用多少额度、下次何时重置，以及 Perplexity 还剩多少积分。
 
 ## 语言
 
@@ -14,11 +12,12 @@ A native macOS menu bar app that turns your remaining Codex / Claude subscriptio
 
 ## 功能
 
-- Codex / Claude Code 一键切换；周窗口显示每日预算，Claude 5 小时窗口显示每小时建议用量。
+- 在 Codex、Claude Code 和 Perplexity 之间切换。周额度显示每日预算，Claude 的 5 小时窗口显示每小时建议用量。
+- Perplexity Computer 分别显示账户积分余额和符合条件的 Pro 账户的每周用量。
 - Claude 5 小时窗口高亮重置倒计时，最后不足 1 小时显示重置前的实际余量。
 - Claude Max 的 Fable 周额度可单独选择，查看真实使用比例、重置时间和每日预算。
 - 按剩余额度和重置时间均摊；普通刷新只扣消耗，Reset 状态变化后重新规划。
-- 超过预算显示红色负数，两个平台和各额度窗口分别保存记录。
+- 超过预算时，详情面板显示红色负数。
 - 每 5 分钟刷新，支持登录 Mac 时启动。
 - Codex reset 券数量、有效期同步；结合近 30 天账户日用量给出使用建议。
 - 可在工具内选择具体的 Codex Reset 券，确认后直接使用。
@@ -31,7 +30,7 @@ A native macOS menu bar app that turns your remaining Codex / Claude subscriptio
 
 当前下载包采用临时签名，尚未取得 Apple Developer ID 签名及公证。macOS 首次打开可能阻止运行；确认下载来源后，可按 [Apple 官方说明](https://support.apple.com/en-us/102445) 在「系统设置 → 隐私与安全性」选择「仍要打开」。不需要关闭系统安全检查。
 
-面板顶部的开关可切换 **Codex / Claude Code**，菜单栏随之显示「Codex 14.3%」或「Claude 16.8%」一类的数字，点击查看详情。首次运行会自动打开独立窗口；之后可以从面板右下角的菜单再次打开窗口。关闭窗口后，小工具继续在菜单栏运行。
+面板顶部可切换 **Codex、Claude Code 或 Perplexity**，点击菜单栏数字即可查看所选平台的详情。首次运行会自动打开独立窗口；之后可以从面板右下角的菜单再次打开窗口。关闭窗口后，小工具继续在菜单栏运行。
 
 1.4.1 起详情使用 macOS 原生弹出层，普通启动保持收起；首次点击即可展开，再次点击或点击外部收起。滚动、额度窗口下拉菜单及「更多选项」交给系统处理，避免启动激活和自定义失焦监听互相关闭详情。
 
@@ -39,9 +38,15 @@ A native macOS menu bar app that turns your remaining Codex / Claude subscriptio
 
 在 Claude Code 下的「额度窗口」选择 **Claude Fable · 7 天**，菜单栏会相应显示「Fable …%」。该窗口仅在账户接口实际返回 Fable 额度时出现，不根据套餐名称推测或从总周额度倒算。Fable 使用同时计入总周额度，不是额外赠送的周额度；其他限制以账户当前生效的额度窗口为准。工具会识别当前额度响应中的 `is_active` 标记：五小时或模型窗口已停用时，即使旧字段仍返回用量，也不再显示。支持的当前窗口优先于旧字段，同时兼容仅返回旧格式的账户。参见 [Claude Fable 套餐说明](https://support.claude.com/en/articles/15424964-claude-fable-models-on-your-plan)。
 
-需要 macOS 13 或更新版本，并已安装、登录 ChatGPT / Codex 桌面应用，或 Codex CLI。下载包包含 Apple Silicon 和 Intel 两种架构；已在 Apple Silicon 上运行验证，Intel 尚未实机验证。应用使用本机现有的 Codex 登录状态，不需要填写 API Key。Claude 需要在 **Agent Pace 的连接窗口中登录一次**，之后复用会话自动刷新；无需登录终端版，也不访问 Claude Safe Storage。请使用与 Claude 桌面 Code 相同的账户。
+需要 macOS 13 或更新版本。要查看 Codex 额度，请先登录 ChatGPT / Codex 桌面应用或 Codex CLI。下载包包含 Apple Silicon 和 Intel 两种架构；已在 Apple Silicon 上运行验证，Intel 尚未实机验证。应用使用本机现有的 Codex 登录状态，不需要填写 API Key。Claude 需要在 **Agent Pace 的连接窗口中登录一次**，之后复用会话自动刷新；无需登录终端版，也不访问 Claude Safe Storage。请使用与 Claude 桌面 Code 相同的账户。
 
 已连接的平台每 5 分钟各自同步一次；切换会保留各自的今日预算、已用记录和所选额度窗口。也可手动刷新。系统从睡眠中醒来会刷新。可以在「怎么算出来的」中选择登录 Mac 时启动。
+
+### 连接 Perplexity Computer
+
+在面板选择 **Perplexity**，然后在连接窗口登录官方用量页。连接后，Agent Pace 每 5 分钟读取一次页面显示的用量。macOS 14 及以上会记住登录状态，macOS 13 的会话持续到退出应用。如果内置窗口无法完成网页验证，可用平时的浏览器打开用量页，将用量和积分摘要粘贴到 Agent Pace。每次粘贴都会更新本机记录。[Perplexity 用量页](https://www.perplexity.ai/account/usage)
+
+符合条件的付费 Pro 账户会显示**每周限额**的剩余百分比和下次重置时间。积分另计，余额可以为零或负数。例如，**本周剩余 0%，还有 500 积分**，表示本周自带额度已用完，重置前仍可用这 500 积分继续运行 Computer。页面明确列出各类余额时，工具会分别显示套餐、奖励和已购买积分。有明确的套餐积分余额及距离下次月度刷新的天数时，才会计算每天建议使用多少套餐积分。[Perplexity 官方积分说明](https://www.perplexity.ai/help-center/zh-CN/articles/13838041-perplexity-shang-de-jifen-ruhe-yunzuo)
 
 ### Claude 5 小时节奏（1.5.0）
 
@@ -79,7 +84,7 @@ A native macOS menu bar app that turns your remaining Codex / Claude subscriptio
 - 重置时间的秒级浮动不会清空当天记录，避免接口返回的小误差反复重算预算。
 - 首次同步前的当天用量没有可靠的百分比历史，因此不推测；面板明确显示记录起点。
 - 本地保存预算，退出重开不会把当天的已用额度清零。
-- 两个平台默认展示最长周期（通常为周额度）；Claude 还提供 5 小时及服务端返回的模型额度窗口。存在多个额度窗口时可以切换，每个窗口独立计算。不同窗口的百分比分母不同，不直接取最小值，也不保证其他窗口不会先限额。
+- Codex 和 Claude 默认展示最长周期（通常为周额度）；Claude 还提供 5 小时及服务端返回的模型额度窗口。存在多个额度窗口时可以切换，每个窗口独立计算。不同窗口的百分比分母不同，不直接取最小值，也不保证其他窗口不会先限额。
 - 数据缺失不当成 0；到达重置时间后先等待新数据，不擅自假设恢复到 100%。离线时标注上次记录，菜单栏以「≈」提示。
 - 百分比的变化以服务端返回的精度为准，显示一位小数并不代表数据有小数精度。
 
@@ -218,7 +223,7 @@ Developer ID 签名、公证提交及票据装订流程见 [签名与公证](doc
 
 报告问题时可附 macOS 版本、应用版本和错误提示；请勿提交登录令牌、钥匙串密钥、Claude 配置文件或完整个人用量记录。
 
-此项目与 OpenAI、Anthropic 无隶属关系。仓库暂未指定开源许可证。
+此项目与 OpenAI、Anthropic、Perplexity 无隶属关系。仓库暂未指定开源许可证。
 
 ## 退出与移除
 

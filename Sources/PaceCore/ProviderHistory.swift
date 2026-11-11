@@ -1,10 +1,16 @@
 import Foundation
 
 public enum UsageProvider: String, Codable, CaseIterable, Identifiable, Sendable {
-    case codex, claude
+    case codex, claude, perplexity
     public var id: String { rawValue }
-    public var title: String { self == .codex ? "Codex" : "Claude Code" }
-    public var shortTitle: String { self == .codex ? "Codex" : "Claude" }
+    public var title: String {
+        switch self {
+        case .codex: return "Codex"
+        case .claude: return "Claude Code"
+        case .perplexity: return "Perplexity"
+        }
+    }
+    public var shortTitle: String { self == .claude ? "Claude" : title }
 }
 
 public struct ProviderHistory: Codable {
@@ -81,6 +87,8 @@ public struct ProviderHistory: Codable {
 public struct PaceHistory: Codable {
     public var providers: [String: ProviderHistory]
     public var selectedProvider: UsageProvider
+    public var perplexityCredits: PerplexityCredits?
+    public var perplexityImported: Bool?
 
     public init(providers: [String: ProviderHistory] = [:], selectedProvider: UsageProvider = .codex) {
         self.providers = providers
@@ -92,7 +100,7 @@ public struct PaceHistory: Codable {
         set { providers[provider.rawValue] = newValue }
     }
 
-    private enum CodingKeys: String, CodingKey { case providers, selectedProvider }
+    private enum CodingKeys: String, CodingKey { case providers, selectedProvider, perplexityCredits, perplexityImported }
 
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
@@ -100,6 +108,8 @@ public struct PaceHistory: Codable {
             providers = try container.decode([String: ProviderHistory].self, forKey: .providers)
             let selection = try container.decodeIfPresent(String.self, forKey: .selectedProvider) ?? "codex"
             selectedProvider = UsageProvider(rawValue: selection) ?? .codex
+            perplexityCredits = try? container.decode(PerplexityCredits.self, forKey: .perplexityCredits)
+            perplexityImported = try container.decodeIfPresent(Bool.self, forKey: .perplexityImported)
         } else {
             // Version 1 stored a single Codex record at the root. Preserve its budget.
             let legacy = try ProviderHistory(from: decoder)

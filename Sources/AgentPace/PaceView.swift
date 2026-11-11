@@ -7,7 +7,13 @@ struct PaceView: View {
     var openWindow: (() -> Void)?
     @State private var showExplanation = false
     @State private var loginFailed = false
-    private var accent: Color { store.provider == .codex ? Color(red: 0.32, green: 0.35, blue: 0.87) : Color(red: 0.77, green: 0.42, blue: 0.29) }
+    private var accent: Color {
+        switch store.provider {
+        case .codex: return Color(red: 0.32, green: 0.35, blue: 0.87)
+        case .claude: return Color(red: 0.77, green: 0.42, blue: 0.29)
+        case .perplexity: return .teal
+        }
+    }
     private var overBudget: Bool { (store.validBudget?.overBudget ?? 0) > 0 }
     private var balanceColor: Color { overBudget ? .red : accent }
 
@@ -16,8 +22,10 @@ struct PaceView: View {
             header
             Picker(L("额度来源"), selection: Binding(get: { store.provider }, set: store.selectProvider)) {
                 ForEach(UsageProvider.allCases) { Text($0.title).tag($0) }
-            }.pickerStyle(.segmented).labelsHidden().accessibilityLabel(L("切换 Codex 或 Claude Code"))
-            if let selected = store.selected {
+            }.pickerStyle(.segmented).labelsHidden().accessibilityLabel(L("额度来源"))
+            if store.provider == .perplexity {
+                PerplexityView(store: store)
+            } else if let selected = store.selected {
                 if store.windows.count > 1 {
                     Picker(L("额度窗口"), selection: Binding(get: { store.selectedID }, set: store.choose)) {
                         ForEach(store.windows) { Text($0.label).tag($0.id) }
@@ -85,7 +93,7 @@ struct PaceView: View {
                 }.frame(maxWidth: .infinity).padding(.vertical, 45)
                 if store.provider == .codex { ResetRadarView(store: store) }
             }
-            TokenUsageView(store: store)
+            if store.provider != .perplexity { TokenUsageView(store: store) }
             footer
         }
         .padding(24)
@@ -102,7 +110,9 @@ struct PaceView: View {
                 .background(accent.opacity(0.10), in: RoundedRectangle(cornerRadius: 12))
             VStack(alignment: .leading, spacing: 3) {
                 Text("Agent Pace").font(.system(size: 16, weight: .semibold))
-                Text(store.sessionPace == nil && store.creditPace == nil ? L("每日额度节奏") : L("每小时额度节奏")).font(.caption).foregroundStyle(.secondary)
+                Text(store.provider == .perplexity ? "Perplexity Computer" :
+                    (store.sessionPace == nil && store.creditPace == nil ? L("每日额度节奏") : L("每小时额度节奏")))
+                    .font(.caption).foregroundStyle(.secondary)
             }
             Spacer(minLength: 4)
             Menu {
@@ -308,6 +318,23 @@ struct PaceView: View {
         }.font(.caption)
     }
 
+    private var waitingForConnection: Bool {
+        switch store.provider {
+        case .codex: return false
+        case .claude: return !store.claudeEnabled || store.claudeNeedsLogin
+        case .perplexity: return !store.perplexityEnabled || store.perplexityNeedsLogin || store.perplexityConnecting
+        }
+    }
+
+    private var syncStatus: String {
+        if store.provider == .perplexity && store.perplexityImported { return L("手动导入") }
+        if waitingForConnection {
+            return store.provider == .claude ? L("等待连接 Claude") : L("等待连接 Perplexity")
+        }
+        let updated = store.provider == .perplexity ? store.perplexityCredits?.fetchedAt : store.snapshot?.fetchedAt
+        return updated.map { L("\(localTime($0)) 更新 · 每 5 分钟同步") } ?? L("自动同步")
+    }
+
     private var footer: some View {
         HStack(spacing: 12) {
             Button { store.refresh() } label: {
@@ -315,10 +342,8 @@ struct PaceView: View {
                     Image(systemName: "arrow.clockwise")
                     Text(store.isRefreshing ? L("同步中…") : L("刷新"))
                 }
-            }.disabled(store.isRefreshing || (store.provider == .claude && (!store.claudeEnabled || store.claudeNeedsLogin))).buttonStyle(.plain)
-            Text(store.provider == .claude && (!store.claudeEnabled || store.claudeNeedsLogin)
-                 ? L("等待连接 Claude")
-                 : store.snapshot.map { L("\(localTime($0.fetchedAt)) 更新 · 每 5 分钟同步") } ?? L("自动同步"))
+            }.disabled(store.isRefreshing || waitingForConnection).buttonStyle(.plain)
+            Text(syncStatus)
                 .foregroundStyle(.tertiary).font(.system(size: 10))
             Spacer(minLength: 0)
             Menu {

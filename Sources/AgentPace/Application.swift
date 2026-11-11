@@ -153,6 +153,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
             fail("Startup must leave a ready status button and a closed popover")
         }
         checkStatusRendering()
+        store.selectProvider(.perplexity)
+        guard store.importPerplexity("Included in Pro\nWeekly limit\n0% left\nCredits\n500 credits left"),
+              store.perplexityImported, store.menuTitle == "Perplexity ≈0% · 500 cr",
+              store.perplexityWeeklyPace == nil, store.perplexityPlanPace == nil,
+              !store.importPerplexity("Get 45,000 credits with your first upgrade"),
+              store.perplexityCredits?.total == 500, store.selected == nil else {
+            fail("Perplexity import must preserve real zero, separate credits and ignore unsupported text")
+        }
+        print("PASS Perplexity 用量导入、独立菜单栏数字与无效摘要隔离")
         guard let preparedHost = menuHost, popover.contentViewController === preparedHost else {
             fail("Details must be prepared before the first click")
         }
@@ -192,7 +201,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     }
 
     private func checkStatusRendering() {
-        for title in ["Fable 22.9%", "Codex -7.6%", "Claude ≈30.7%/h", "Claude 60.0% · <1h", "Claude 同步中"] {
+        for title in ["Fable 22.9%", "Codex -7.6%", "Claude ≈30.7%/h", "Claude 60.0% · <1h", "Claude 同步中", "Perplexity 0% · 500 cr"] {
             let image = StatusItemLabel.image(for: title)
             // Check the actual rendered alpha, including the text region, at
             // both display scales. A nonempty title alone missed the blank bug.

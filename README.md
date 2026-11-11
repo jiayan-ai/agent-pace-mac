@@ -4,13 +4,14 @@ Windows version: [agent-pace-windows](https://github.com/jiayan-ai/agent-pace-wi
 
 English · [简体中文](README.zh-CN.md)
 
-A native macOS menu bar app that helps you pace your **Codex and Claude subscription usage**. See how much you can use today—or per hour in Claude's five-hour window—and when your quota resets.
+A native macOS menu bar app for **Codex, Claude Code and Perplexity Computer**. See how much quota you can use today, when it resets and how many Perplexity credits you have left.
 
 [Download the latest release](https://github.com/jiayan-ai/agent-pace-mac/releases/latest)
 
 ## Features
 
-- Switch between Codex and Claude Code, with separate records for each provider and quota window.
+- Switch between Codex, Claude Code and Perplexity in the menu bar panel.
+- Perplexity Computer shows the included weekly allowance on eligible Pro accounts alongside any available credit balance.
 - Weekly windows: a fixed daily allowance, with actual usage deducted throughout the day. Overspending stays visible as a negative balance and appears red in the details panel.
 - Claude five-hour window: a rolling hourly allowance and a prominent reset countdown. In the final partial hour, see the actual quota left before reset.
 - Claude Fable: a separate weekly view when the account reports a Fable quota.
@@ -54,6 +55,12 @@ Click **Connect Claude**, sign in at `claude.ai` inside Agent Pace's connection 
 Users upgrading from the old desktop-credential integration must connect once using this flow. An expired session may require signing in again. For accounts with multiple organizations, select the organization explicitly.
 
 Claude's subscription quota is shared across its apps. This view cannot isolate usage generated only by Desktop Code. Fable usage also counts toward the overall weekly quota; it is not an extra independent weekly allowance. Other restrictions depend on the active windows returned for the account. Agent Pace honors the current usage response’s `is_active` flags: a disabled session or model window is hidden even when legacy fields still return a percentage. Supported current windows take precedence over legacy fields; accounts returning only the older format remain supported. See [Claude's Fable plan documentation](https://support.claude.com/en/articles/15424964-claude-fable-models-on-your-plan).
+
+### Perplexity Computer
+
+Select **Perplexity** in the panel and sign in to the official Usage page in Agent Pace’s connection window. Once connected, Agent Pace checks the visible usage figures every five minutes. On macOS 14 and later the sign-in survives app restarts. On macOS 13 it lasts until you quit. If verification fails in the connection window, open Usage in your usual browser and paste the usage and credit summary into Agent Pace. Each paste updates that local snapshot. [Perplexity Usage](https://www.perplexity.ai/account/usage)
+
+On eligible paid Pro accounts, **Weekly limit** shows the percentage left and the next reset time. Credits have their own balance, which can reach zero or go negative. For example, **0% weekly usage left and 500 credits** means Computer can continue using those credits until the weekly allowance returns. When the page identifies individual balances, Agent Pace can show plan, bonus and purchased credits separately. A monthly credits-per-day suggestion requires both a confirmed plan balance and the number of days to its next monthly refresh. [How credits work on Perplexity](https://www.perplexity.ai/help-center/en/articles/13838041-how-credits-work-on-perplexity)
 
 ## How pacing works
 
@@ -231,4 +238,4 @@ Signing and notarization scripts are documented in the [signing guide (Chinese)]
 
 When reporting a problem, include the macOS version, app version and error message. Do not attach authentication tokens, Keychain secrets, Claude configuration files or complete personal usage records.
 
-Agent Pace is not affiliated with OpenAI or Anthropic. The repository does not currently specify an open-source license.
+Agent Pace is not affiliated with OpenAI, Anthropic or Perplexity. The repository does not currently specify an open-source license.

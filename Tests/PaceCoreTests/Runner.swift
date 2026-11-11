@@ -34,7 +34,13 @@ struct Runner {
         let localization = LocalizationTests()
         let tokens = TokenActivityTests()
         let claudeTokens = ClaudeTokenTests()
+        let perplexity = PerplexityCreditTests()
         let cases: [(String, () throws -> Void)] = [
+            ("Perplexity 账户积分与 Pro 周额度独立显示", perplexity.testAccountUsagePage),
+            ("Perplexity 选择、导入来源与旧版账户记录分别持久化", perplexity.testProviderHistoryRoundTrip),
+            ("Perplexity 已确认的积分余额和月度建议", perplexity.testExplicitBalancesAndMonthlyHorizon),
+            ("Perplexity 中英文周额度与本地重置时间", perplexity.testLocalizedAndWeeklyOnly),
+            ("Perplexity 部分数据、冲突、用量明细与推广隔离", perplexity.testUnsupportedOrAmbiguousPage),
             ("Claude Token 跨午夜和时区切换不冒充今日", claudeTokens.testSnapshotDateAndTimeZoneFreshness),
             ("Claude Token 桌面记录、流式去重和缓存合计", claudeTokens.testDesktopDeduplicationStreamingAndCacheCounts),
             ("Claude Token 本地日期、缺失与明确零值", claudeTokens.testLocalDatesMissingPeriodsAndZeroRecords),

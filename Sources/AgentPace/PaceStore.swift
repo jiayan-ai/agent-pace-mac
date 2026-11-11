@@ -30,6 +30,12 @@ final class PaceStore: ObservableObject {
     @Published private(set) var claudeEnabled = UserDefaults.standard.bool(forKey: "claudeWebConnectionEnabled")
     @Published private(set) var claudeNeedsLogin = false
     @Published private(set) var disconnectingClaude = false
+    @Published private(set) var perplexityEnabled = PerplexityWebSession.persistsLogin && UserDefaults.standard.bool(forKey: "perplexityConnectionEnabled")
+    @Published private(set) var perplexityNeedsLogin = false
+    @Published private(set) var perplexityConnecting = false
+    @Published private(set) var disconnectingPerplexity = false
+    private lazy var perplexitySession = PerplexityWebSession()
+    private var perplexityGeneration = 0
     @Published private(set) var resetRadar: ResetRadarSnapshot?
     @Published private(set) var resetRadarRefreshing = false
     @Published private var resetRadarFailure: Error?
@@ -48,12 +54,14 @@ final class PaceStore: ObservableObject {
     private var lastAttempt: [UsageProvider: Date] = [:]
     private var retryAfter: [UsageProvider: Date] = [:]
     private let cacheURL: URL
+    private let diagnostics: Bool
     // These summaries depend on activity and the UTC day, not the current minute.
     // Keep their caches unpublished so reading them while rendering emits no updates.
     private var usagePatternCache: (provider: UsageProvider, day: Date, value: UsagePattern)?
     private var codexTokensCache: (day: Date, value: CodexTokenActivity)?
 
     init(diagnostics: Bool = false) {
+        self.diagnostics = diagnostics
         cacheURL = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("CodexPace/state.json")
         resetRadarCacheURL = cacheURL.deletingLastPathComponent().appendingPathComponent("reset-radar.json")
@@ -67,7 +75,7 @@ final class PaceStore: ObservableObject {
         checkAutoResetStatus()
         // Menu diagnostics can use saved display data without triggering background
         // account refreshes, automatic Reset, wake handling, or local token scans.
-        guard !diagnostics else { return }
+        guard !diagnostics else { perplexityEnabled = false; return }
         timer = Timer(timeInterval: 15, repeats: true) { [weak self] _ in
             Task { @MainActor in
                 guard let self else { return }
@@ -115,6 +123,16 @@ final class PaceStore: ObservableObject {
     }
 
     var provider: UsageProvider { history.selectedProvider }
+    var perplexityCredits: PerplexityCredits? { history.perplexityCredits }
+    var perplexityImported: Bool { history.perplexityImported == true }
+    var perplexityWeeklyPace: Double? {
+        guard !stale, let balance = perplexityCredits, let remaining = balance.weeklyRemainingPercent,
+              let reset = balance.weeklyResetAt, reset > now else { return nil }
+        return remaining / max(1, reset.timeIntervalSince(now) / 86400)
+    }
+    var perplexityPlanPace: Double? {
+        stale ? nil : perplexityCredits?.dailyPlanCredits(asOf: now)
+    }
     var snapshot: UsageSnapshot? { history[provider].snapshot }
     var planningResetCredits: ResetCredits? {
         resetCreditsExcludingConfirmed(snapshot)
@@ -167,6 +185,11 @@ final class PaceStore: ObservableObject {
         provider == .claude && snapshot != nil && windows.isEmpty && !stale
     }
     var stale: Bool {
+        if provider == .perplexity {
+            guard verified.contains(.perplexity), let balance = perplexityCredits else { return true }
+            let age = now.timeIntervalSince(balance.fetchedAt)
+            return error != nil || age < 0 || age > 660
+        }
         guard verified.contains(provider), let snapshot else { return true }
         return error != nil || now.timeIntervalSince(snapshot.fetchedAt) > 660
     }
@@ -177,6 +200,18 @@ final class PaceStore: ObservableObject {
         return budget
     }
     var menuTitle: String {
+        if provider == .perplexity {
+            let prefix = stale || perplexityImported ? "≈" : ""
+            if let balance = perplexityCredits {
+                if let weekly = balance.weeklyRemainingPercent, balance.weeklyResetAt.map({ $0 > now }) != false {
+                    let credits = weekly == 0 ? balance.total.map { " · \(creditNumber($0)) cr" } ?? "" : ""
+                    return "Perplexity \(prefix)\(creditNumber(weekly))%\(credits)"
+                }
+                if let total = balance.total { return "Perplexity \(prefix)\(creditNumber(total)) cr" }
+                if let pace = perplexityPlanPace { return "Perplexity \(prefix)\(creditNumber(pace)) cr/d" }
+            }
+            return "Perplexity \(isRefreshing ? L("同步中") : L("待同步"))"
+        }
         if let sessionPace { return sessionPace.menuTitle(stale: stale) }
         if creditPlanNeedsConfirmation { return "Codex \(L("待同步"))" }
         if let pace = creditPace {
@@ -191,6 +226,17 @@ final class PaceStore: ObservableObject {
         return "\(title) \(stale ? "≈" : "")\(number(budget.leftToday))%"
     }
     var menuTooltip: String {
+        if provider == .perplexity {
+            guard let balance = perplexityCredits else { return L("连接 Perplexity 以查看 Computer 用量") }
+            var parts = ["Perplexity Computer"]
+            if let weekly = balance.weeklyRemainingPercent {
+                if let reset = balance.weeklyResetAt, reset <= now { parts.append(L("周额度等待刷新")) }
+                else { parts.append(L("周额度剩余 \(creditNumber(weekly))%")) }
+            }
+            if let total = balance.total { parts.append(L("积分余额 \(creditNumber(total))")) }
+            parts.append(L("记录时间 \(resetTime(balance.fetchedAt))"))
+            return parts.joined(separator: "\n")
+        }
         if let pace = sessionPace {
             let allowance = pace.allowance.map { "\(number($0))\(pace.unit)" } ?? L("待同步")
             return "Claude · \(pace.heading) \(allowance)\n\(pace.countdown)\(stale ? L(" · 上次记录") : "")"
@@ -420,6 +466,7 @@ final class PaceStore: ObservableObject {
         language = value
         value.save()
         claudeSession.refreshLanguage()
+        if perplexityConnecting || perplexityEnabled { perplexitySession.refreshLanguage() }
         ResetForecastWindow.shared.refreshLanguage()
         onChange?()
     }
@@ -430,7 +477,7 @@ final class PaceStore: ObservableObject {
         now = Date()
         persist()
         onChange?()
-        if stale { refresh() }
+        if !diagnostics && stale { refresh() }
     }
     func refreshAll() {
         refreshClaudeTokens()
@@ -509,7 +556,83 @@ final class PaceStore: ObservableObject {
         NSWorkspace.shared.open(URL(fileURLWithPath: "/Applications/Claude.app"))
     }
 
+    func connectPerplexity() {
+        guard !disconnectingPerplexity else { return }
+        perplexityConnecting = true
+        perplexitySession.onLoginWindowClosed = { [weak self] in self?.perplexityConnecting = false }
+        perplexitySession.showLogin { [weak self] in self?.refreshPerplexity(interactive: true) }
+    }
+
+    func disconnectPerplexity() {
+        guard !disconnectingPerplexity else { return }
+        perplexityGeneration += 1
+        disconnectingPerplexity = true
+        perplexityEnabled = false
+        perplexityConnecting = false
+        perplexityNeedsLogin = false
+        UserDefaults.standard.removeObject(forKey: "perplexityConnectionEnabled")
+        clearPerplexityRecord()
+        refreshing.remove(.perplexity)
+        perplexitySession.disconnect { [weak self] in self?.disconnectingPerplexity = false }
+    }
+
+    func clearPerplexityRecord() {
+        history.perplexityCredits = nil
+        history.perplexityImported = nil
+        verified.remove(.perplexity)
+        errors[.perplexity] = nil
+        persist()
+        onChange?()
+    }
+
+    func importPerplexity(_ text: String) -> Bool {
+        guard !perplexityEnabled, !disconnectingPerplexity, !refreshing.contains(.perplexity),
+              let balance = PerplexityCredits.parse(visibleText: text) else { return false }
+        savePerplexity(balance, imported: true)
+        return true
+    }
+
+    private func savePerplexity(_ balance: PerplexityCredits, imported: Bool) {
+        now = Date()
+        history.perplexityCredits = balance
+        history.perplexityImported = imported
+        errors[.perplexity] = nil
+        verified.insert(.perplexity)
+        persist()
+        onChange?()
+    }
+
+    private func refreshPerplexity(interactive: Bool) {
+        guard !disconnectingPerplexity, !refreshing.contains(.perplexity),
+              interactive || (perplexityEnabled && !perplexityNeedsLogin && !perplexityConnecting) else { return }
+        refreshing.insert(.perplexity)
+        lastAttempt[.perplexity] = Date()
+        onChange?()
+        let generation = perplexityGeneration
+        perplexitySession.fetch { [weak self] result in
+            guard let self, self.perplexityGeneration == generation else { return }
+            self.refreshing.remove(.perplexity)
+            self.now = Date()
+            switch result {
+            case .success(let balance):
+                self.perplexityEnabled = true
+                UserDefaults.standard.set(PerplexityWebSession.persistsLogin, forKey: "perplexityConnectionEnabled")
+                self.perplexityNeedsLogin = false
+                self.perplexityConnecting = false
+                self.savePerplexity(balance, imported: false)
+            case .failure(let error):
+                if case .signInRequired? = error as? PerplexitySessionError {
+                    self.perplexityNeedsLogin = true
+                    if !self.perplexityImported { self.clearPerplexityRecord() }
+                }
+                self.errors[.perplexity] = error
+                self.onChange?()
+            }
+        }
+    }
+
     private func refresh(provider: UsageProvider) {
+        if provider == .perplexity { refreshPerplexity(interactive: false); return }
         guard provider != .codex || !resetBusy else { return }
         guard provider != .claude || (claudeEnabled && !claudeNeedsLogin && !disconnectingClaude) else { return }
         guard !refreshing.contains(provider), Date() >= (retryAfter[provider] ?? .distantPast) else { return }
@@ -587,6 +710,7 @@ final class PaceStore: ObservableObject {
     }
 
     private func persist() {
+        guard !diagnostics else { return }
         do {
             try FileManager.default.createDirectory(at: cacheURL.deletingLastPathComponent(), withIntermediateDirectories: true)
             try JSONEncoder().encode(history).write(to: cacheURL, options: .atomic)
