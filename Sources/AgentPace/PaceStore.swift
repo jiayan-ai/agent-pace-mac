@@ -182,7 +182,14 @@ final class PaceStore: ObservableObject {
         return plan
     }
     var noActiveClaudeLimits: Bool {
-        provider == .claude && snapshot != nil && windows.isEmpty && !stale
+        provider == .claude && snapshot?.response.claudeNoActiveLimits == true && windows.isEmpty && !stale
+    }
+    var claudeResetObservation: ClaudeResetObservation? {
+        guard provider == .claude, claudeEnabled, !claudeNeedsLogin else { return nil }
+        return history[.claude].claudeResetObservation
+    }
+    var claudeResetObservationStale: Bool {
+        stale || (claudeResetObservation != nil && snapshot?.response.claudeLimitResets == nil)
     }
     var stale: Bool {
         if provider == .perplexity {
@@ -221,7 +228,10 @@ final class PaceStore: ObservableObject {
             return "Codex \(number(plan.leftToday))%" + (plan.includesReset ? " · \(L("计划"))" : "")
         }
         let title = selected?.bucketID == "claude_fable" ? "Fable" : provider.shortTitle
-        if noActiveClaudeLimits { return "Claude · \(L("无生效额度窗口"))" }
+        if noActiveClaudeLimits {
+            if let count = snapshot?.response.claudeLimitResets?.availableCount { return "Claude · \(count) Reset" }
+            return "Claude · \(L("无生效额度窗口"))"
+        }
         guard let budget = validBudget else { return "\(title) \(isRefreshing ? L("同步中") : L("待同步"))" }
         return "\(title) \(stale ? "≈" : "")\(number(budget.leftToday))%"
     }
@@ -239,7 +249,7 @@ final class PaceStore: ObservableObject {
         }
         if let pace = sessionPace {
             let allowance = pace.allowance.map { "\(number($0))\(pace.unit)" } ?? L("待同步")
-            return "Claude · \(pace.heading) \(allowance)\n\(pace.countdown)\(stale ? L(" · 上次记录") : "")"
+            return "Claude · \(pace.heading) \(allowance)\n\(pace.countdown)\(stale ? L(" · 上次记录") : "")" + claudeResetTooltip
         }
         if creditPlanNeedsConfirmation { return L("额度计划待同步确认，请刷新额度。") }
         if let pace = creditPace {
@@ -252,8 +262,16 @@ final class PaceStore: ObservableObject {
                 : L("Codex · 今日建议剩余 \(number(plan.leftToday))%；当前实际余额 \(number(plan.actualRemaining))%。")
         }
         let over = validBudget?.overBudget ?? 0
-        return over > 0 ? L("\(provider.title) · 今日已超额 \(number(over)) 个百分点")
+        let detail = over > 0 ? L("\(provider.title) · 今日已超额 \(number(over)) 个百分点")
             : L("\(provider.title) · 今天还可用的额度")
+        if provider == .claude, let date = selected?.window.resetDate {
+            return detail + "\n" + L("窗口自然重置：\(resetTime(date))") + claudeResetTooltip
+        }
+        return detail + claudeResetTooltip
+    }
+    private var claudeResetTooltip: String {
+        guard provider == .claude, !stale, let count = snapshot?.response.claudeLimitResets?.availableCount else { return "" }
+        return "\n" + L("Claude Reset 券：\(count) 次可用")
     }
     var daysLeft: Double? { selected?.window.resetDate.map { max(0, $0.timeIntervalSince(now) / 86400) } }
     var usagePattern: UsagePattern {
@@ -543,6 +561,8 @@ final class PaceStore: ObservableObject {
         disconnectingClaude = true
         UserDefaults.standard.set(false, forKey: "claudeWebConnectionEnabled")
         verified.remove(.claude)
+        history[.claude].clearClaudeResetObservation()
+        persist()
         errors[.claude] = nil
         retryAfter[.claude] = nil
         claudeNeedsLogin = false

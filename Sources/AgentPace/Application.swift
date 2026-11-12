@@ -310,6 +310,13 @@ struct AgentPaceApplication {
                                                       historyFresh: snapshot.activity != nil, stale: false, now: snapshot.fetchedAt)
                     print("Reset: \(snapshot.response.rateLimitResetCredits.map { String($0.availableCount) } ?? "未知") 次；近 30 天有效记录 \(pattern.observedDays) 天；\(advice.title)")
                 }
+                if CommandLine.arguments.contains("--check-claude") {
+                    let resets = snapshot.response.claudeLimitResets
+                    print("Claude Reset: \(resets?.availableCount.map(String.init) ?? "数量未确认")")
+                    for offer in resets?.offers ?? [] {
+                        print("\(claudeResetTitle(offer.kind)) · \(offer.expiryText ?? "到期时间未注明")")
+                    }
+                }
                 if snapshot.response.windows.isEmpty { print("未返回额度窗口") }
             } catch {
                 fputs("\(error.localizedDescription)\n", stderr)

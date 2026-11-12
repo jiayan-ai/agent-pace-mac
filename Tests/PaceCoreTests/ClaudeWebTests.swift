@@ -20,10 +20,46 @@ struct ClaudeWebTests {
         for status in [401, 403, 409, 429, 500] {
             try expectThrows { try JSONDecoder().decode(ClaudeWebReply.self, from: Data("{\"status\":\(status)}".utf8)).snapshot() }
         }
+        // Verified inventory can stand alone, but one workspace's visible
+        // settings cannot provide another workspace's offer.
+        let section = #"{"organization":"\#(org)","text":"Limit resets\n2 available\nFull reset\nFable reset","hasEnabledResetButton":true}"#
+        let inventory = #"{"status":200,"organization":"\#(org)","organizations":[{"uuid":"\#(org)","name":"Example"}],"usage":{},"resetSection":\#(section)}"#
+        let standalone = try JSONDecoder().decode(ClaudeWebReply.self, from: Data(inventory.utf8)).snapshot()
+        try expect(standalone.response.claudeLimitResets?.availableCount == 2 && standalone.response.windows.isEmpty)
+        let changed = inventory.replacingOccurrences(of: section, with: section.replacingOccurrences(of: org, with: other))
+        try expectThrows { try JSONDecoder().decode(ClaudeWebReply.self, from: Data(changed.utf8)).snapshot() }
     }
 
     func testOriginValidation() throws {
         try expect(ClaudeWebAPI.isClaudeOrigin(URL(string: "https://claude.ai/settings/usage")))
+        for path in ["settings/usage", "settings/usage/", "new#settings/usage"] {
+            try expect(ClaudeWebAPI.isUsagePage(URL(string: "https://claude.ai/" + path)))
+        }
+        for url in ["https://claude.ai/new", "https://claude.ai/#settings/profile",
+                    "https://example.org/#settings/usage", "https://claude.ai/settings/usage-extra"] {
+            try expect(!ClaudeWebAPI.isUsagePage(URL(string: url)))
+        }
+        func matches(_ paths: [String], sole: Bool = false) throws -> Bool {
+            let context = try require(JSContext())
+            let resources = paths.map { ["name": $0, "initiatorType": "fetch"] }
+            let fixture = String(decoding: try JSONSerialization.data(withJSONObject: resources), as: UTF8.self)
+            context.evaluateScript("""
+                var location = {origin:'https://claude.ai', pathname:'/new', hash:'#settings/usage'};
+                var performance = {getEntriesByType: () => \(fixture)}, selectedOrganization = '\(org)', soleOrganization = \(sole);
+                class URL { constructor(path, origin){ this.origin = origin; this.pathname = path; } }
+                var document = {querySelectorAll: () => []};
+                var scopeResult = (() => { \(ClaudeWebAPI.resetSectionScript) })();
+                """)
+            let status = try require(context.objectForKeyedSubscript("scopeResult")?.toDictionary()?["readerStatus"] as? [String: Any])
+            return status["matched"] as? Bool == true
+        }
+        let exact = "/api/organizations/\(org)/usage"
+        let otherReset = "/api/organizations/\(other)/limit_resets"
+        try expect(try matches([exact]))
+        try expect(try !matches([exact, otherReset]))
+        try expect(try !matches(["/api/organizations/\(org)/profile"]))
+        try expect(try matches([], sole: true))
+        try expect(try !matches([otherReset], sole: true))
         for url in ["http://claude.ai", "https://claude.ai.evil.test", "https://evil.test/claude.ai", "https://claude.ai:8443", "file:///claude.ai"] {
             try expect(!ClaudeWebAPI.isClaudeOrigin(URL(string: url)))
         }

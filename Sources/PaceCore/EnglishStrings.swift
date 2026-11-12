@@ -3,6 +3,22 @@ import Foundation
 
 enum EnglishStrings {
     static let values: [String: String] = [
+        "Claude Reset 券": "Claude limit resets",
+        "窗口自然重置：{0}": "Scheduled reset: {0}",
+        "Claude Reset 券：{0} 次可用": "Claude limit resets: {0} available",
+        "有可用券，数量未注明": "Available · Count unspecified",
+        "上次记录 {0} 次": "{0} last recorded",
+        "{0} 次可用": "{0} available",
+        "等待同步 Claude Reset 券": "Waiting to sync Claude limit resets",
+        "暂未从 Claude 用量页确认券数": "Reset availability hasn’t been confirmed on the Claude Usage page.",
+        "在 Claude 用量页查看": "View in Claude Usage",
+        "完整重置": "Full reset",
+        "Fable 重置": "Fable reset",
+        "每周额度重置": "Weekly reset",
+        "五小时额度重置": "Five-hour reset",
+        "额度重置券": "Limit reset",
+        "Claude Reset 券的有效期和额度窗口的自然重置时间分别显示。使用券后，周额度仍按原定时间自然重置。": "Each reset offer has its own expiry. Redeeming one preserves the scheduled weekly reset time.",
+
         "连接 Perplexity 以查看 Computer 用量": "Connect Perplexity to see Computer usage",
         "周额度等待刷新": "Waiting for the new weekly allowance",
         "周额度剩余 {0}%": "{0}% weekly allowance left",
@@ -110,6 +126,7 @@ enum EnglishStrings {
         "占 Fable 周额度的百分比": "Percentage of the Fable weekly quota",
         "占这个周期总额度的百分比": "Percentage of this window's total quota",
         "当前没有启用的额度窗口": "No active usage windows",
+        "尚未同步到额度窗口": "Usage windows have not synced yet",
         "无生效额度窗口": "No active windows",
         "Fable 使用也计入总周额度，其他限制以账户当前生效的额度窗口为准。": "Fable also counts toward the overall weekly quota. Other limits depend on the windows currently active on your account.",
         "周期剩余": "Remaining",
@@ -131,7 +148,6 @@ enum EnglishStrings {
         "每天首次同步时，将剩余额度除以距重置的天数；不足 1 天按 1 天算。当天预算固定，再扣除首次同步之后用掉的额度。": "At the first sync each day, remaining quota is divided by days until reset, with a minimum of one day. That budget stays fixed; subsequent usage is deducted from it.",
         "跨天、切换账户或额度重置后重新计算。百分比指总额度的百分点；这是均摊建议，实际使用仍受其他额度窗口限制。": "Recalculated on a new day, account change or quota reset. Percentages are points of the total quota. This is pacing guidance; other limits still apply.",
         "Claude 各入口共享订阅额度。在工具内登录一次后自动同步；登录失效时重新连接即可，无需 Mac 钥匙串密码。": "Claude shares subscription limits across its apps. Sign in once here for automatic sync; reconnect if the session expires. No Mac Keychain password is needed.",
-        "当前 Claude 接口未提供 reset 券或账户月度历史，因此不推测券数，也不生成月度 reset 建议。": "Claude's current endpoint provides neither reset credits nor account-wide monthly history, so the app does not infer credit counts or monthly reset advice.",
         "断开 Claude 连接": "Disconnect Claude",
         "登录 Mac 时启动": "Launch at login",
         "请在系统设置 → 通用 → 登录项中检查启动权限。": "Check System Settings → General → Login Items for startup permissions.",

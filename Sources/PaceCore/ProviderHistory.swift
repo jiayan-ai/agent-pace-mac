@@ -13,6 +13,12 @@ public enum UsageProvider: String, Codable, CaseIterable, Identifiable, Sendable
     public var shortTitle: String { self == .claude ? "Claude" : title }
 }
 
+public struct ClaudeResetObservation: Codable, Equatable {
+    public let accountKey: String
+    public let observedAt: Date
+    public let inventory: ClaudeLimitResets
+}
+
 public struct ProviderHistory: Codable {
     public var snapshot: UsageSnapshot?
     public var budgets: [String: DailyBudget]
@@ -21,6 +27,30 @@ public struct ProviderHistory: Codable {
     public var selectedID: String
     public var activity: AccountActivity?
     public var activityFetchedAt: Date?
+    // Keep a prior observation only when the quota query
+    // succeeds but the independent offers section cannot be verified.
+    private var previousClaudeResets: ClaudeResetObservation?
+
+    /// If the latest quota snapshot has no Claude reset inventory, the returned
+    /// observation is historical. Its timestamp must be labeled as last recorded.
+    public var claudeResetObservation: ClaudeResetObservation? {
+        guard let snapshot else { return nil }
+        if let inventory = snapshot.response.claudeLimitResets {
+            return ClaudeResetObservation(accountKey: snapshot.accountKey, observedAt: snapshot.fetchedAt,
+                                         inventory: inventory)
+        }
+        guard previousClaudeResets?.accountKey == snapshot.accountKey else { return nil }
+        return previousClaudeResets
+    }
+
+    public mutating func clearClaudeResetObservation() {
+        previousClaudeResets = nil
+        guard let current = snapshot, current.response.claudeLimitResets != nil else { return }
+        var quotas = current.response
+        quotas.claudeLimitResets = nil
+        snapshot = UsageSnapshot(response: quotas, accountKey: current.accountKey,
+                                 fetchedAt: current.fetchedAt, activity: current.activity)
+    }
 
     public init(snapshot: UsageSnapshot? = nil, budgets: [String: DailyBudget] = [:], selectedID: String = "") {
         self.snapshot = snapshot
@@ -33,6 +63,8 @@ public struct ProviderHistory: Codable {
                                 excludedCreditIDs: Set<String> = [],
                                 calendar: Calendar = .current) {
         let priorSnapshot = snapshot
+        previousClaudeResets = current.response.claudeLimitResets == nil && priorSnapshot?.accountKey == current.accountKey
+            ? claudeResetObservation : nil
         if snapshot?.accountKey != current.accountKey {
             budgets = [:]
             resetPlanBudgets = nil

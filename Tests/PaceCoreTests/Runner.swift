@@ -35,7 +35,12 @@ struct Runner {
         let tokens = TokenActivityTests()
         let claudeTokens = ClaudeTokenTests()
         let perplexity = PerplexityCreditTests()
+        let claudeResets = ClaudeLimitResetTests()
         let cases: [(String, () throws -> Void)] = [
+            ("Claude Full 与 Fable Reset、官方到期标签及序列化", claudeResets.testFullAndFableOffers),
+            ("Claude Reset 未知、零、按钮可用与冲突数据", claudeResets.testUnknownZeroAndConflictingResets),
+            ("Claude 各项 Reset 数量与中文标签", claudeResets.testScopedLocalizedResetCounts),
+            ("Claude Reset 独立时间、旧记录、零值、断开和账户隔离", claudeResets.testLatestObservationAndAccountChanges),
             ("Perplexity 账户积分与 Pro 周额度独立显示", perplexity.testAccountUsagePage),
             ("Perplexity 选择、导入来源与旧版账户记录分别持久化", perplexity.testProviderHistoryRoundTrip),
             ("Perplexity 已确认的积分余额和月度建议", perplexity.testExplicitBalancesAndMonthlyHorizon),

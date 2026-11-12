@@ -38,6 +38,8 @@ public struct UsageResponse: Codable {
     public let rateLimits: UsageBucket?
     public let rateLimitsByLimitId: [String: UsageBucket]?
     public let rateLimitResetCredits: ResetCredits?
+    public internal(set) var claudeLimitResets: ClaudeLimitResets?
+    public internal(set) var claudeNoActiveLimits: Bool?
 
     public init(rateLimits: UsageBucket?, rateLimitsByLimitId: [String: UsageBucket]? = nil,
                 rateLimitResetCredits: ResetCredits? = nil) {

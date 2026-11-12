@@ -62,22 +62,15 @@ struct PaceView: View {
                             .font(.callout).foregroundStyle(.secondary)
                     }
                 }
-                if store.provider == .codex {
-                    ResetRadarView(store: store)
-                    ResetInsightsView(store: store)
-                }
-                if store.stale {
-                    Label(L("显示上次记录，尚未确认最新额度"), systemImage: "exclamationmark.circle")
-                        .font(.caption).foregroundStyle(.orange)
-                }
-                if let error = store.error { errorMessage(error) }
-                if store.provider == .claude, !store.claudeEnabled || store.error != nil { claudeConnection }
-
-                if let error = store.persistenceError { errorMessage(error) }
-                explanation
-            } else if store.noActiveClaudeLimits {
-                Label(L("当前没有启用的额度窗口"), systemImage: "checkmark.circle")
-                    .font(.callout).foregroundStyle(.secondary).padding(.vertical, 32)
+            } else if store.provider == .claude && store.claudeEnabled && !store.claudeNeedsLogin {
+                VStack(alignment: .leading, spacing: 10) {
+                    Label(store.noActiveClaudeLimits ? L("当前没有启用的额度窗口") : L("尚未同步到额度窗口"),
+                          systemImage: store.noActiveClaudeLimits ? "checkmark.circle" : "clock.arrow.circlepath")
+                        .font(.callout).foregroundStyle(.secondary)
+                    if let error = store.error { errorMessage(error) }
+                    Button(store.isRefreshing ? L("同步中…") : L("重新同步"), action: store.refresh)
+                        .disabled(store.isRefreshing || store.disconnectingClaude)
+                }.padding(.vertical, 16)
             } else {
                 VStack(spacing: 14) {
                     Image(systemName: store.isRefreshing ? "arrow.triangle.2.circlepath.circle" : "gauge.with.dots.needle.0percent")
@@ -91,9 +84,28 @@ struct PaceView: View {
                         else { Button(L("重新同步")) { store.refresh() }.buttonStyle(.borderedProminent).tint(accent) }
                     }
                 }.frame(maxWidth: .infinity).padding(.vertical, 45)
-                if store.provider == .codex { ResetRadarView(store: store) }
             }
-            if store.provider != .perplexity { TokenUsageView(store: store) }
+            if store.provider == .codex {
+                if store.selected != nil { ResetInsightsView(store: store) }
+                ResetRadarView(store: store)
+            } else if store.provider == .claude, store.claudeEnabled {
+                ClaudeLimitResetsView(inventory: store.claudeResetObservation?.inventory,
+                                      stale: store.claudeResetObservationStale,
+                                      observedAt: store.claudeResetObservation?.observedAt)
+            }
+            if store.provider != .perplexity {
+                if store.selected != nil {
+                    if store.stale {
+                        Label(L("显示上次记录，尚未确认最新额度"), systemImage: "exclamationmark.circle")
+                            .font(.caption).foregroundStyle(.orange)
+                    }
+                    if let error = store.error { errorMessage(error) }
+                    if store.provider == .claude, !store.claudeEnabled || store.claudeNeedsLogin { claudeConnection }
+                    if let error = store.persistenceError { errorMessage(error) }
+                    explanation
+                }
+                TokenUsageView(store: store)
+            }
             footer
         }
         .padding(24)
@@ -280,7 +292,7 @@ struct PaceView: View {
                 }
                 if store.provider == .claude {
                     Text(L("Claude 各入口共享订阅额度。在工具内登录一次后自动同步；登录失效时重新连接即可，无需 Mac 钥匙串密码。"))
-                    Text(L("当前 Claude 接口未提供 reset 券或账户月度历史，因此不推测券数，也不生成月度 reset 建议。"))
+                    Text(L("Claude Reset 券的有效期和额度窗口的自然重置时间分别显示。使用券后，周额度仍按原定时间自然重置。"))
                     if store.claudeEnabled {
                         Button(L("断开 Claude 连接")) { store.disconnectClaude() }
                             .disabled(store.isRefreshing)

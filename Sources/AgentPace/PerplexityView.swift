@@ -12,13 +12,13 @@ struct PerplexityView: View {
     @State private var importFailed = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
+        VStack(alignment: .leading, spacing: 20) {
             if let balance = store.perplexityCredits {
                 if let weekly = balance.weeklyRemainingPercent {
                     weeklyCard(balance, remaining: weekly)
                 }
                 if balance.total != nil || balance.bonus != nil || balance.plan != nil || balance.purchased != nil {
-                    creditsCard(balance)
+                    creditsCard(balance, primary: balance.weeklyRemainingPercent == nil)
                 }
                 Text(store.perplexityImported ? L("手动导入于 \(resetTime(balance.fetchedAt))") :
                      L("同步于 \(resetTime(balance.fetchedAt))"))
@@ -76,8 +76,11 @@ struct PerplexityView: View {
             if expired {
                 Text(L("周额度等待刷新")).font(.title2.weight(.semibold))
             } else {
-                Text("\(creditNumber(remaining))%")
-                    .font(.system(size: 48, weight: .medium, design: .rounded)).monospacedDigit().foregroundStyle(.teal)
+                HStack(alignment: .firstTextBaseline, spacing: 3) {
+                    Text(creditNumber(remaining))
+                        .font(.system(size: 62, weight: .medium, design: .rounded)).monospacedDigit()
+                    Text("%").font(.system(size: 28, weight: .regular, design: .rounded))
+                }.foregroundStyle(.teal).accessibilityElement(children: .combine)
             }
             if let reset = balance.weeklyResetAt {
                 Label(L("周额度重置于 \(resetTime(reset))"), systemImage: "arrow.clockwise")
@@ -90,17 +93,18 @@ struct PerplexityView: View {
                 Text(L("按剩余时间均摊：每天约 \(creditNumber(pace)) 个百分点。"))
                     .font(.caption).foregroundStyle(.secondary)
             }
-        }.frame(maxWidth: .infinity, alignment: .leading).padding(18)
-            .background(Color.teal.opacity(0.08), in: RoundedRectangle(cornerRadius: 16))
+        }.frame(maxWidth: .infinity, alignment: .leading).padding(20)
+            .background(Color.teal.opacity(0.08), in: RoundedRectangle(cornerRadius: 19))
     }
 
-    private func creditsCard(_ balance: PerplexityCredits) -> some View {
-        VStack(alignment: .leading, spacing: 9) {
+    private func creditsCard(_ balance: PerplexityCredits, primary: Bool) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
             Text(L("Computer 积分")).font(.callout.weight(.medium)).foregroundStyle(.secondary)
             if let total = balance.total {
                 Text(L("\(creditNumber(total)) 积分"))
-                    .font(.system(size: 27, weight: .semibold, design: .rounded))
-                    .monospacedDigit().foregroundStyle(total < 0 ? Color.red : Color.primary)
+                    .font(.system(size: primary ? 48 : 27, weight: primary ? .medium : .semibold, design: .rounded))
+                    .monospacedDigit().lineLimit(1).minimumScaleFactor(0.55)
+                    .foregroundStyle(total < 0 ? Color.red : (primary ? Color.teal : Color.primary))
             }
             if let bonus = balance.bonus { creditRow(L("奖励积分"), bonus) }
             if let plan = balance.plan { creditRow(L("方案积分"), plan) }
@@ -112,8 +116,9 @@ struct PerplexityView: View {
                 Text(L("方案积分日均建议 \(creditNumber(pace)) 积分"))
                     .font(.callout.weight(.medium)).foregroundStyle(.teal)
             }
-        }.frame(maxWidth: .infinity, alignment: .leading).padding(16)
-            .background(.primary.opacity(0.04), in: RoundedRectangle(cornerRadius: 14))
+        }.frame(maxWidth: .infinity, alignment: .leading).padding(primary ? 20 : 16)
+            .background(primary ? Color.teal.opacity(0.08) : Color.primary.opacity(0.035),
+                        in: RoundedRectangle(cornerRadius: primary ? 19 : 14))
     }
 
     private func creditRow(_ label: String, _ value: Double) -> some View {

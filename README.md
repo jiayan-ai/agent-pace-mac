@@ -10,11 +10,12 @@ A native macOS menu bar app for **Codex, Claude Code and Perplexity Computer**. 
 
 ## Features
 
-- Switch between Codex, Claude Code and Perplexity in the menu bar panel.
+- Switch between Codex, Claude Code and Perplexity in the menu bar panel. Each panel opens with its primary allowance and reset timing when available. Codex and Claude show reset offers below the budget. Perplexity shows credits below the weekly allowance, or first when credits are the only balance.
 - Perplexity Computer shows the included weekly allowance on eligible Pro accounts alongside any available credit balance.
 - Weekly windows: a fixed daily allowance, with actual usage deducted throughout the day. Overspending stays visible as a negative balance and appears red in the details panel.
 - Claude five-hour window: a rolling hourly allowance and a prominent reset countdown. In the final partial hour, see the actual quota left before reset.
 - Claude Fable: a separate weekly view when the account reports a Fable quota.
+- Claude limit resets appear in the Claude Code panel with the count, type and expiry shown by your account.
 - Codex reset credits: available count, reported expiry dates and rule-based advice using the last 30 days of account activity.
 - Use a specific Codex reset credit directly in the app, with confirmation before it is spent.
 - Tibo reset updates: public announcement records, source links and an in-app window for the Will Codex Reset community forecast.
@@ -55,6 +56,8 @@ Click **Connect Claude**, sign in at `claude.ai` inside Agent Pace's connection 
 Users upgrading from the old desktop-credential integration must connect once using this flow. An expired session may require signing in again. For accounts with multiple organizations, select the organization explicitly.
 
 Claude's subscription quota is shared across its apps. This view cannot isolate usage generated only by Desktop Code. Fable usage also counts toward the overall weekly quota; it is not an extra independent weekly allowance. Other restrictions depend on the active windows returned for the account. Agent Pace honors the current usage response’s `is_active` flags: a disabled session or model window is hidden even when legacy fields still return a percentage. Supported current windows take precedence over legacy fields; accounts returning only the older format remain supported. See [Claude's Fable plan documentation](https://support.claude.com/en/articles/15424964-claude-fable-models-on-your-plan).
+
+In the **Claude Code** panel, check **Limit resets** for offers available to your signed-in account. Each offer shows the count, type and expiry that Claude makes available. If the offer details cannot be read, check **Settings → Usage** in Claude. Agent Pace reads this section without spending a reset. To use an offer, select **Reset for free** on Claude’s Usage page and confirm there. Your usual weekly reset time stays the same. [Claude Usage](https://claude.ai/settings/usage) · [Claude’s guide to limit resets](https://support.claude.com/en/articles/17007452-what-is-a-limit-reset)
 
 ### Perplexity Computer
 
@@ -110,7 +113,7 @@ These are percentage points of a quota, **not minutes of work**. Consumption dep
 
 Missing data is never treated as zero usage. Expired windows wait for fresh data. Offline or unconfirmed records are labeled as last known; the menu bar uses `≈` for stale estimates. A one-decimal display does not imply the service measures usage to that precision.
 
-### Daily plan including reset credits
+### Codex daily plan including reset credits
 
 A verified reset credit expiring **on or before the current natural reset** can contribute **100 percentage points of potential capacity**. If November 1 starts with 100% remaining and one credit expires on November 6 before the natural reset, the six local calendar dates give `(100% + 100%) / 6 = 33.3% per day`. Only the earliest expiry batch is included. Later-expiring credits stay in the Reset advisor and do not extend the current window's planning horizon. Unknown, conflicting, expired or confirmed-used credits never add capacity.
 
@@ -138,13 +141,13 @@ The Token usage card is separate from quota percentages:
 
 Claude totals cover only retained local records and may include multiple accounts on this device; they are not attributed to the currently signed-in web organization or presented as cross-device account totals. Missing records are not zero. Partial or unreadable data is labeled. Scanning runs in the background with resource limits; it does not read credentials or save/upload conversation text. No percentage-to-token conversion or estimated billing is used. See the [Claude local directory documentation](https://code.claude.com/docs/en/claude-directory) and [usage history scope](https://code.claude.com/docs/en/costs).
 
-### Use a reset credit in the app
+### Use a Codex reset credit in the app
 
 Select an available credit in the Codex reset section and confirm to use that specific credit. You do not need to enable automatic redemption or wait until the credit is near expiry. Agent Pace rechecks the current account and credit before sending the request; the server decides whether it can be used. A successful reset restores eligible limits and refreshes the displayed quota and credit count. Unused quota is not added to the restored allowance, and the next reset times can change.
 
 If a network interruption leaves the result unknown, Agent Pace pauses redemption of other credits until the outcome is resolved. Any retry of that request keeps the same request key to avoid spending a second credit. Neither clicking refresh nor reopening the app creates a new redemption request for an uncertain attempt.
 
-### Optional automatic reset redemption
+### Optional automatic Codex reset redemption
 
 Automatic redemption is **off by default**. If enabled, Agent Pace attempts to redeem the specific available Codex reset credit five minutes before it expires. The app must be running, the Mac awake and an internet connection available; a sleeping or closed app cannot guarantee an on-time attempt. The server decides eligibility and may reject a request, so redemption is not guaranteed. A reset restores eligible usage limits rather than adding unused quota to the new allowance, and can change their next reset times. Public reset announcements and forecasts do not trigger redemption. You can turn the feature off at any time.
 
@@ -162,7 +165,7 @@ The Codex panel reads available reset counts, reported expiry details and 30 day
 
 This is explainable, local rule-based guidance. Token activity cannot be converted directly into quota percentage, so the app does not promise an accurate depletion forecast. Automatic redemption is a separate, optional setting, and the app does not encourage unnecessary usage just to spend a credit. A negative daily budget alone is not a reason to reset.
 
-Claude's current endpoint does not provide reset credits or account-wide monthly history. Agent Pace does not invent those values or provide monthly reset advice for Claude.
+The 30-day reset advisor uses Codex account activity. For Claude, use the **Claude Code** panel to see the account’s current limit reset offers.
 
 ## Tibo reset updates
 
@@ -190,7 +193,7 @@ The old directory name is retained for upgrade compatibility. History is analyze
 
 ### Claude
 
-Agent Pace uses its own persistent WebKit session. It does not read Claude Desktop's configuration, OAuth cache, Safe Storage or another browser's cookies. The quota bridge makes same-origin GET requests for organizations and usage, and returns organization identity and quota windows—not cookies or passwords.
+Agent Pace uses its own persistent WebKit session. It does not read Claude Desktop's configuration, OAuth cache, Safe Storage or another browser's cookies. The quota bridge reads organization identity and usage windows from Claude. The limit reset card uses the offer details Claude displays in the signed-in account’s Usage settings.
 
 This is a normal Claude web sign-in, not an official quota-only authorization. The account identity is hashed in budget history; the selected organization UUID is stored in local preferences. **Disconnect Claude** stops syncing and removes Agent Pace's website session without signing out other apps or browsers.
 
